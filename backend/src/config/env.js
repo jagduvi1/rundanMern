@@ -19,6 +19,19 @@ const env = {
   port: Number(process.env.PORT) || 5000,
   mongoUri: process.env.MONGO_URI || 'mongodb://mongo:27017/rundan',
 
+  // Number of trusted reverse-proxy hops in front of Express, so req.ip + the
+  // per-IP rate limiters resolve the real client IP. Cloudflare → Traefik → nginx
+  // ⇒ set TRUST_PROXY=3. Default 1 (plain nginx). Accepts a number, a boolean, or
+  // an IP/CIDR list (e.g. "loopback, linklocal, uniquelocal").
+  get trustProxy() {
+    const raw = process.env.TRUST_PROXY;
+    if (raw == null || raw === '') return 1;
+    const n = Number(raw);
+    if (Number.isInteger(n)) return n;
+    if (/^(true|false)$/i.test(raw)) return raw.toLowerCase() === 'true';
+    return raw;
+  },
+
   // Host/admin account auth (Glosan-style JWT).
   jwtSecret: process.env.JWT_SECRET,
   accessTokenExpiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN || '15m',

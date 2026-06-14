@@ -35,10 +35,10 @@ const libraryRoute = require('./routes/library');
 const maintenanceRoute = require('./routes/maintenance');
 
 const app = express();
-// Exactly one proxy hop (the nginx container) sits in front in production.
-// Trusting more would let a client spoof X-Forwarded-For and forge req.ip,
-// defeating the per-IP rate limiters.
-app.set('trust proxy', 1);
+// Trust exactly the proxy hops we control (TRUST_PROXY env; default 1 = plain
+// nginx). Behind Cloudflare → Traefik → nginx, set TRUST_PROXY=3 so req.ip and
+// the rate limiters see the real client IP and a client can't spoof it.
+app.set('trust proxy', env.trustProxy);
 
 app.use(
   helmet({

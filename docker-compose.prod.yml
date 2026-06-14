@@ -1,0 +1,111 @@
+# Production compose for a shared VM behind Cloudflare → Traefik.
+#
+#   docker compose -f docker-compose.prod.yml up --build -d
+#
+# Differences from the local docker-compose.yml:
+#   • No host ports are published — Traefik routes to the frontend by Host rule.
+#   • The frontend joins your EXISTING external Traefik network (TRAEFIK_NETWORK,
+#     default "web") and uses unique router/service labels ("rundan"), so it
+#     coexists with your other apps on the box.
+#   • Everything else (mongo, backend) stays on a private per-app network and is
+#     never exposed to the host.
+#   • TRUST_PROXY=3 so the backend sees the real client IP behind CF→Traefik→nginx.
+#
+# Required env (in .env next to this file): JWT_SECRET, RUNDAN_HOST, FRONTEND_URL.
+# To use a SHARED MongoDB instead of the bundled one: set MONGO_URI to it and
+# delete the `mongo` service + its `depends_on`.
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: rundan-mongo
+    restart: unless-stopped
+    command: ["mongod", "--wiredTigerCacheSizeGB", "0.5"]
+    volumes:
+      - mongo-data:/data/db
+    networks: [internal]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: rundan-backend
+    restart: unless-stopped
+    networks: [internal]
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - MONGO_URI=${MONGO_URI:-mongodb://mongo:27017/rundan}
+      - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET}
+      - ACCESS_TOKEN_EXPIRES_IN=${ACCESS_TOKEN_EXPIRES_IN:-15m}
+      - FRONTEND_URL=${FRONTEND_URL:?set FRONTEND_URL to https://your-domain}
+      - APP_NAME=${APP_NAME:-Rundan}
+      # Cloudflare → Traefik → nginx = 3 trusted proxy hops.
+      - TRUST_PROXY=${TRUST_PROXY:-3}
+      - ACCESS_CODE=${ACCESS_CODE:-}
+      - SEED_CODE=${SEED_CODE:?set SEED_CODE to a private value}
+      - SEED_ON_STARTUP=${SEED_ON_STARTUP:-false}
+      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
+      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
+      - LASTFM_API_KEY=${LASTFM_API_KEY:-}
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
+      - VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:admin@example.com}
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - EMAIL_FROM=${EMAIL_FROM:-}
+      - UPLOADS_DIR=/app/uploads
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      mongo:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build: ./frontend
+    container_name: rundan-frontend
+    restart: unless-stopped
+    networks: [internal, proxy]
+    depends_on:
+      backend:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-web}"
+      - "traefik.http.routers.rundan.rule=Host(`${RUNDAN_HOST:?set RUNDAN_HOST to your domain}`)"
+      - "traefik.http.routers.rundan.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.rundan.tls=${TRAEFIK_TLS:-true}"
+      # If Traefik (not a Cloudflare origin cert) issues the certificate, set a resolver:
+      # - "traefik.http.routers.rundan.tls.certresolver=${TRAEFIK_CERTRESOLVER}"
+      - "traefik.http.services.rundan.loadbalancer.server.port=80"
+
+networks:
+  # Private per-app network (auto-prefixed with the project name → no collisions).
+  internal:
+  # Your existing Traefik-managed network (created outside this compose).
+  proxy:
+    external: true
+    name: ${TRAEFIK_NETWORK:-web}
+
+volumes:
+  mongo-data:
+  uploads:
