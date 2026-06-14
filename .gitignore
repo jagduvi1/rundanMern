@@ -1,0 +1,67 @@
+# ── Dependencies ──────────────────────────────────────────────────────────────
+node_modules/
+*/node_modules/
+.npm/
+.pnpm-store/
+.yarn/cache/
+.yarn/install-state.gz
+.pnp.*
+
+# ── Environment ───────────────────────────────────────────────────────────────
+.env
+.env.*
+*.env
+!.env.example
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+
+# ── Test / coverage ───────────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ── Build output / caches ─────────────────────────────────────────────────────
+backend/dist/
+frontend/build/
+*.tsbuildinfo
+.eslintcache
+.cache/
+.parcel-cache/
+
+# ── Uploads (user-generated; not source) ──────────────────────────────────────
+backend/uploads/
+uploads/
+
+# ── Process / runtime ─────────────────────────────────────────────────────────
+*.pid
+*.seed
+*.pid.lock
+
+# ── OS noise ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# ── Editor / IDE ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+*~
+*.bak
+*.tmp
+*.code-workspace
+.history/
+
+# ── Claude Code workspace ─────────────────────────────────────────────────────
+.claude/
+
+# ── Port analysis scratch (planning docs; not shipped) ────────────────────────
+_port/
