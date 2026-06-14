@@ -1,0 +1,62 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: rundan-mongo
+    restart: unless-stopped
+    command: ["mongod", "--wiredTigerCacheSizeGB", "0.5"]
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: rundan-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=5000
+      - MONGO_URI=mongodb://mongo:27017/rundan
+      - JWT_SECRET=${JWT_SECRET}
+      - ACCESS_TOKEN_EXPIRES_IN=${ACCESS_TOKEN_EXPIRES_IN:-15m}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8080}
+      - APP_NAME=${APP_NAME:-Rundan}
+      - ACCESS_CODE=${ACCESS_CODE:-}
+      - SEED_CODE=${SEED_CODE:-CALLE}
+      - SEED_ON_STARTUP=${SEED_ON_STARTUP:-false}
+      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
+      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
+      - LASTFM_API_KEY=${LASTFM_API_KEY:-}
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
+      - VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:admin@example.com}
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - EMAIL_FROM=${EMAIL_FROM:-}
+      - UPLOADS_DIR=/app/uploads
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build: ./frontend
+    container_name: rundan-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  mongo-data:
+  uploads:
