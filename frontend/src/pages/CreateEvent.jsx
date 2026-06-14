@@ -3,9 +3,9 @@
 // quiz questions from the library → share the code. Deep per-game authoring
 // still lives on /manage/:id (the "Redigera" link), but you reach "playable"
 // without leaving this page. Host-only (route wrapped in ProtectedRoute).
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { createEvent } from '../api/events';
+import { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { createEvent, getEvent } from '../api/events';
 import { createActivity } from '../api/activities';
 import { generateFromLibrary } from '../api/library';
 import { ActivityType } from '../config/enums';
@@ -37,6 +37,7 @@ const TEAM_SIZES = [
 export default function CreateEvent() {
   useDocumentTitle('Skapa evenemang · Rundan');
   const navigate = useNavigate();
+  const { eventId } = useParams();
   const { toast, show } = useToast();
 
   const [name, setName] = useState('');
@@ -45,6 +46,32 @@ export default function CreateEvent() {
   const [event, setEvent] = useState(null); // the created event (phase B)
   const [games, setGames] = useState([]); // [{ id, title, type, questionCount }]
   const [shareOpen, setShareOpen] = useState(false);
+  const [loading, setLoading] = useState(!!eventId);
+
+  // Resume an in-progress setup keyed by event id: load the event + its games so
+  // you can come back here (e.g. after editing a game) and keep adding.
+  useEffect(() => {
+    if (!eventId) { setEvent(null); setGames([]); setLoading(false); return undefined; }
+    let alive = true;
+    setLoading(true);
+    (async () => {
+      try {
+        const ev = await getEvent(eventId);
+        if (!alive) return;
+        setEvent(ev);
+        setGames(
+          (ev.activities || []).slice().sort((a, b) => a.order - b.order)
+            .map((a) => ({ id: a.id, title: a.title, type: a.type, questionCount: a.questionCount || 0 }))
+        );
+      } catch (e) {
+        if (alive) show(e?.message || 'Kunde inte ladda evenemanget.');
+      } finally {
+        if (alive) { setLoading(false); setBusy(false); }
+      }
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId]);
 
   const shareUrl = event ? `${window.location.origin}/e/${event.id}` : '';
 
@@ -53,10 +80,9 @@ export default function CreateEvent() {
     setBusy(true);
     try {
       const ev = await createEvent({ name: name.trim(), teamSize });
-      setEvent(ev);
+      navigate(`/create/${ev.id}`); // → phase B (resumable by id)
     } catch (e) {
       show(e?.message || 'Kunde inte skapa evenemanget.');
-    } finally {
       setBusy(false);
     }
   };
@@ -90,6 +116,10 @@ export default function CreateEvent() {
       setBusy(false);
     }
   };
+
+  if (loading) {
+    return (<>{toast}<div className="loading-page"><span className="spinner" /></div></>);
+  }
 
   // ── Phase A: name the event ────────────────────────────────────────────────
   if (!event) {
@@ -203,7 +233,7 @@ export default function CreateEvent() {
                       + 5 frågor från biblioteket
                     </button>
                   ) : null}
-                  <button type="button" className="btn ghost sm" onClick={() => navigate(`/manage/${x.id}`)}>
+                  <button type="button" className="btn ghost sm" onClick={() => navigate(`/manage/${x.id}`, { state: { returnTo: `/create/${event.id}` } })}>
                     Redigera
                   </button>
                 </div>

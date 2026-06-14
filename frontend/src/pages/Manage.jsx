@@ -4,7 +4,7 @@
 // (route wrapped in ProtectedRoute); management calls also carry the per-event
 // member token via client.js so a co-host can edit.
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useLocation } from 'react-router-dom';
 import {
   getActivity, updateActivity, setActivityStatus, deleteActivity, setCourts,
 } from '../api/activities';
@@ -56,8 +56,10 @@ export default function Manage() {
   useDocumentTitle('Hantera · Rundan');
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast, show } = useToast();
   const { spotifyClientId } = useBootstrap();
+  const [leaveTo, setLeaveTo] = useState(null); // pending navigation when there are unsaved edits
 
   const [activity, setActivity] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -71,6 +73,20 @@ export default function Manage() {
   // Edit fields
   const [f, setF] = useState(null);
   const set = (key) => (val) => setF((s) => ({ ...s, [key]: val }));
+
+  // Unsaved-changes guard: the details form differs from the saved activity.
+  const dirty = useMemo(
+    () => !!(activity && f && JSON.stringify(fieldsFrom(activity)) !== JSON.stringify(f)),
+    [activity, f],
+  );
+  // Navigate, but stop to ask if there are unsaved edits.
+  const guardedGo = (to) => { if (dirty) setLeaveTo(to); else navigate(to); };
+  // Warn on tab close / refresh while dirty.
+  useEffect(() => {
+    const handler = (e) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [dirty]);
 
   const isDraft = activity?.status === ActivityStatus.Draft;
   const usesQuestions = activity?.usesQuestions;
@@ -253,12 +269,22 @@ export default function Manage() {
     ? `${activity.teamCount} lag · ${activity.playerCount} spelare`
     : `${activity.playerCount} spelare`;
 
+  // Where "back" goes: the setup wizard if we came from it, else the event, else the panel.
+  const returnTo = location.state?.returnTo || (activity.eventId ? `/e/${activity.eventId}` : '/admin');
+  const fromSetup = (location.state?.returnTo || '').startsWith('/create');
+  const backLabel = fromSetup
+    ? '← Tillbaka till uppsättningen'
+    : activity.eventId ? '← Tillbaka till evenemanget' : '← Värdpanel';
+
   return (
     <>
       {toast}
 
       {/* Header */}
       <div className="card stack">
+        <button type="button" className="btn ghost sm" style={{ alignSelf: 'flex-start' }} onClick={() => guardedGo(returnTo)}>
+          {backLabel}
+        </button>
         <div className="row">
           <h1 className="grow" style={{ margin: 0 }}>{activity.title}</h1>
           <StatusBadge status={activity.status} />
@@ -267,7 +293,7 @@ export default function Manage() {
         <div className="row wrap">
           <span className="pill accent" style={{ fontSize: '1rem' }}>{activity.joinCode}</span>
           <button type="button" className="btn ghost sm" onClick={copyCode}>{copied ? 'Kopierad ✓' : 'Kopiera kod'}</button>
-          <Link className="btn ghost sm" to={`/a/${activity.id}`}>Öppna spelarvy</Link>
+          <button type="button" className="btn ghost sm" onClick={() => guardedGo(`/a/${activity.id}`)}>Öppna spelarvy</button>
         </div>
 
         <div className="row wrap">
@@ -524,6 +550,44 @@ export default function Manage() {
         onConfirm={resetToDraft}
         onCancel={() => setConfirm(null)}
       />
+
+      {/* Unsaved-changes guard when leaving the editor. */}
+      {leaveTo != null ? (
+        <div
+          role="presentation"
+          onClick={() => setLeaveTo(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(10,15,30,0.5)', zIndex: 400, display: 'grid', placeItems: 'center', padding: 16 }}
+        >
+          <div className="card stack" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 380, width: '100%' }}>
+            <h3 style={{ margin: 0 }}>Osparade ändringar</h3>
+            <p className="muted" style={{ margin: 0 }}>Du har ändrat något som inte är sparat ännu.</p>
+            <button
+              type="button"
+              className="btn success block"
+              disabled={busy}
+              onClick={async () => {
+                if (!f || !f.title.trim()) { show('Ge aktiviteten ett namn först.'); return; }
+                setBusy(true);
+                try {
+                  await updateActivity(id, buildBody(f));
+                  const to = leaveTo;
+                  setLeaveTo(null);
+                  navigate(to);
+                } catch (err) {
+                  show(err?.message || 'Kunde inte spara.');
+                  setBusy(false);
+                }
+              }}
+            >
+              Spara och gå
+            </button>
+            <button type="button" className="btn ghost block" onClick={() => { const to = leaveTo; setLeaveTo(null); navigate(to); }}>
+              Gå utan att spara
+            </button>
+            <button type="button" className="btn ghost block" onClick={() => setLeaveTo(null)}>Avbryt</button>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

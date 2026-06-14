@@ -85,6 +85,14 @@ function AppRoutes() {
             )}
           />
           <Route
+            path="/create/:eventId"
+            element={(
+              <ProtectedRoute>
+                <CreateEvent />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
             path="/admin"
             element={(
               <ProtectedRoute>
