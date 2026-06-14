@@ -134,6 +134,23 @@ export default function QuestionEditor({ activity, onChanged }) {
     await refreshAvailable(next);
   }
 
+  // One-tap quick fill — random questions, no tag picking needed.
+  async function quickAdd(n) {
+    setLibBusy(true);
+    setLibError(null);
+    try {
+      const result = await generateFromLibrary(activity.id, n, []);
+      setLibAvailable(Number(result?.available) || 0);
+      await reload();
+      notifyChanged();
+      if ((result?.added || 0) === 0) setLibError('Inga fler frågor i biblioteket.');
+    } catch (e) {
+      setLibError(e?.message || 'Kunde inte hämta från biblioteket.');
+    } finally {
+      setLibBusy(false);
+    }
+  }
+
   async function generate() {
     setLibBusy(true);
     setLibError(null);
@@ -307,8 +324,17 @@ export default function QuestionEditor({ activity, onChanged }) {
       <div className="card stack">
         <h2>Från frågebiblioteket</h2>
         <p className="muted small" style={{ margin: 0 }}>
-          Hämta slumpade frågor du inte skrivit själv (bra när värden också spelar). Välj taggar och antal — de markeras som använda så de inte upprepas.
+          Hämta slumpade frågor du inte skrivit själv (bra när värden också spelar). De markeras som använda så de inte upprepas.
         </p>
+
+        {/* One-tap quick fill — the easy path. */}
+        <div className="row wrap" style={{ gap: 6 }}>
+          <button type="button" className="btn success" onClick={() => quickAdd(10)} disabled={libBusy || libAvailable === 0}>
+            {libBusy ? 'Hämtar…' : '+ 10 blandade frågor'}
+          </button>
+          <button type="button" className="btn soft sm" onClick={() => quickAdd(5)} disabled={libBusy || libAvailable === 0}>+ 5</button>
+          <span className="muted small" style={{ alignSelf: 'center' }}>Snabbast — eller välj kategorier nedan.</span>
+        </div>
 
         {libError ? <div className="error-text">{libError}</div> : null}
 

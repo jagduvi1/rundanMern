@@ -15,6 +15,17 @@ import Spinner from './Spinner';
 // helper, so read it directly. Returns MemoryCardDto[] = { id, order, text }.
 const getMemoryCards = (activityId) => apiGet(`/activities/${activityId}/memory-cards`, { activityId });
 
+// One-tap themed packs so a host doesn't have to type every pair (10 pairs each).
+const PRESETS = [
+  { name: '🏙️ Svenska städer', items: ['Stockholm', 'Göteborg', 'Malmö', 'Uppsala', 'Västerås', 'Örebro', 'Linköping', 'Helsingborg', 'Norrköping', 'Lund'] },
+  { name: '🐾 Djur', items: ['Hund', 'Katt', 'Häst', 'Ko', 'Gris', 'Får', 'Höna', 'Räv', 'Älg', 'Igelkott'] },
+  { name: '🍎 Frukt', items: ['Äpple', 'Banan', 'Apelsin', 'Päron', 'Jordgubbe', 'Vindruva', 'Citron', 'Melon', 'Körsbär', 'Ananas'] },
+  { name: '😺 Emoji', items: ['🐱', '🐶', '🦊', '🐼', '🐸', '🐵', '🦁', '🐯', '🐮', '🐷'] },
+  { name: '🎨 Färger', items: ['Röd', 'Blå', 'Grön', 'Gul', 'Lila', 'Orange', 'Rosa', 'Svart', 'Vit', 'Brun'] },
+  { name: '🔢 Siffror', items: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'] },
+  { name: '🌍 Länder', items: ['Sverige', 'Norge', 'Danmark', 'Finland', 'Island', 'Tyskland', 'Frankrike', 'Spanien', 'Italien', 'Polen'] },
+];
+
 export default function MemoryCardsEditor({ activity, onChanged }) {
   const [text, setText] = useState('');
   const [words, setWords] = useState([]);
@@ -46,11 +57,10 @@ export default function MemoryCardsEditor({ activity, onChanged }) {
     return () => { alive = false; };
   }, [activity.id]);
 
-  async function save() {
+  async function saveList(list) {
     setBusy(true);
     setError(null);
     try {
-      const list = text.split('\n').map((w) => w.trim()).filter((w) => w.length > 0);
       const cards = await setMemoryCards(activity.id, list);
       const w = (cards || []).map((c) => c.text);
       if (aliveRef.current) { setWords(w); setText(w.join('\n')); }
@@ -61,6 +71,11 @@ export default function MemoryCardsEditor({ activity, onChanged }) {
       setBusy(false);
     }
   }
+
+  const save = () => saveList(text.split('\n').map((w) => w.trim()).filter((w) => w.length > 0));
+
+  // Fill the box with a preset AND save it in one tap.
+  const applyPreset = (items) => { setText(items.join('\n')); saveList(items); };
 
   if (loading) {
     return <div className="card center muted"><Spinner /></div>;
@@ -75,6 +90,19 @@ export default function MemoryCardsEditor({ activity, onChanged }) {
         En etikett per rad — var och en blir två matchande kort. Ord, namn eller emoji fungerar alla. Ett jämnt antal (8–12 par) brukar bli lagom.
       </p>
       {error ? <div className="error-text">{error}</div> : null}
+
+      <div className="stack" style={{ gap: 6 }}>
+        <label style={{ margin: 0 }}>Snabbfyll med en färdig uppsättning (ett tryck):</label>
+        <div className="row wrap" style={{ gap: 6 }}>
+          {PRESETS.map((p) => (
+            <button key={p.name} type="button" className="btn ghost sm" disabled={busy} onClick={() => applyPreset(p.items)}>
+              {p.name}
+            </button>
+          ))}
+        </div>
+        <span className="muted small">…eller skriv din egen lista nedan.</span>
+      </div>
+
       <textarea
         rows={7}
         value={text}
