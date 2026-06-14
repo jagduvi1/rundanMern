@@ -1,0 +1,7 @@
+<svg width="320" height="96" viewBox="0 0 320 96" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Rundan">
+  <rect x="0" y="0" width="96" height="96" rx="24" fill="#0B84B3"></rect>
+  <circle cx="48" cy="50" r="25" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-dasharray="3 13"></circle>
+  <circle cx="48" cy="50" r="11" fill="#25AC66"></circle>
+  <circle cx="73" cy="29" r="9.5" fill="#FB5530" stroke="#0B84B3" stroke-width="4"></circle>
+  <text x="116" y="62" font-family="'Bricolage Grotesque','Hanken Grotesk',sans-serif" font-size="48" font-weight="800" letter-spacing="-0.02em" fill="#0F2A31">Rundan</text>
+</svg>

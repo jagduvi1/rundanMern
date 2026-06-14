@@ -1,0 +1,12 @@
+{
+  "name": "Rundan",
+  "short_name": "Rundan",
+  "description": "Kör gruppspel tillsammans med en delad live-resultattavla.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f7fb",
+  "theme_color": "#2563eb",
+  "icons": [
+    { "src": "/assets/rundan-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

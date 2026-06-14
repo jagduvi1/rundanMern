@@ -1,0 +1,151 @@
+// ResultsView — final standings for a finished activity. Loads the (final)
+// scoreboard, crowns the winner, shows medals for the podium, and — for
+// question/music activities — offers a per-question breakdown (ResultsSummary).
+//
+// Props:
+//   activity : ActivityDto — { id, type, status, ... }.
+//
+// The board comes from getScoreboard (rows arrive already ranked). For a finished
+// activity it is the final result; we still subscribe to ScoreboardUpdated in
+// case a late host answer-key correction re-scores everyone.
+import { useEffect, useState } from 'react';
+import { getScoreboard } from '../api/activities';
+import { getSocket } from '../utils/socket';
+import { ServerEvents } from '../config/socketEvents';
+import { ActivityType } from '../config/enums';
+import { ApiError } from '../api/client';
+import Spinner from './Spinner';
+import ResultsSummary from './ResultsSummary';
+
+function fmtNum(n) {
+  const v = Number(n) || 0;
+  return Number.isInteger(v) ? String(v) : v.toFixed(2).replace(/\.?0+$/, '');
+}
+
+const isQuestionGame = (type) =>
+  type === ActivityType.Quiz || type === ActivityType.Tipspromenad || type === ActivityType.MusicQuiz;
+const isMapPin = (type) => type === ActivityType.MapPin;
+
+const MEDALS = { 1: '🥇', 2: '🥈', 3: '🥉' };
+
+export default function ResultsView({ activity }) {
+  const [board, setBoard] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [showBreakdown, setShowBreakdown] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setError(null);
+    getScoreboard(activity.id)
+      .then((dto) => {
+        if (alive) setBoard(dto);
+      })
+      .catch((e) => {
+        if (alive && !(e instanceof ApiError && e.status === 404)) {
+          setError(e?.message || 'Kunde inte ladda resultatet.');
+        }
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [activity.id]);
+
+  // Pick up a late re-score from a host answer-key correction.
+  useEffect(() => {
+    let socket = null;
+    let alive = true;
+    const onUpdate = (dto) => {
+      if (alive && dto && String(dto.activityId) === String(activity.id)) setBoard(dto);
+    };
+    getSocket().then((s) => {
+      if (!alive) return;
+      socket = s;
+      s.on(ServerEvents.ScoreboardUpdated, onUpdate);
+    });
+    return () => {
+      alive = false;
+      if (socket) socket.off(ServerEvents.ScoreboardUpdated, onUpdate);
+    };
+  }, [activity.id]);
+
+  if (loading) {
+    return (
+      <div className="card center muted" style={{ padding: '1.2rem' }}>
+        <Spinner /> Laddar resultat…
+      </div>
+    );
+  }
+
+  const entries = board?.entries || [];
+  const questionGame = isQuestionGame(activity.type);
+  const mapPin = isMapPin(activity.type);
+  const winner = entries.find((e) => e.rank === 1);
+
+  return (
+    <div className="stack">
+      <div className="card stack">
+        <h2 style={{ margin: 0 }}>Slutresultat</h2>
+        {error ? <div className="error-text">{error}</div> : null}
+
+        {entries.length === 0 ? (
+          <p className="muted center">Inga poäng registrerades.</p>
+        ) : (
+          <>
+            {winner ? (
+              <div
+                className="center"
+                style={{
+                  padding: '14px',
+                  borderRadius: 'var(--radius)',
+                  background: 'linear-gradient(135deg,#fde68a,#fbbf24)',
+                  color: '#7c2d12',
+                }}
+              >
+                <div style={{ fontSize: '1.8rem' }}>🏆</div>
+                <div style={{ fontWeight: 800, fontSize: '1.2rem' }}>{winner.displayName}</div>
+                <div className="small">
+                  vinner med {fmtNum(winner.totalPoints)}{mapPin ? ' km' : ' p'}
+                </div>
+              </div>
+            ) : null}
+
+            <table className="board">
+              <thead>
+                <tr>
+                  <th className="rank">#</th>
+                  <th>Lag</th>
+                  <th className="pts">Poäng</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((e) => (
+                  <tr key={e.participantId} className={e.rank === 1 ? 'me' : undefined}>
+                    <td className="rank">{MEDALS[e.rank] || e.rank}</td>
+                    <td><b>{e.displayName}</b></td>
+                    <td className="pts">
+                      {fmtNum(e.totalPoints)}
+                      {mapPin ? ' km' : ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {questionGame ? (
+          <button className="btn ghost block" onClick={() => setShowBreakdown((v) => !v)}>
+            {showBreakdown ? 'Dölj svaren per fråga' : 'Visa svaren per fråga'}
+          </button>
+        ) : null}
+      </div>
+
+      {questionGame && showBreakdown ? <ResultsSummary activity={activity} /> : null}
+    </div>
+  );
+}

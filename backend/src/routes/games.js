@@ -18,6 +18,7 @@ const {
 const { idStr, mapCityDto } = require('../services/serializers');
 const { RuleViolation, asyncHandler } = require('../middleware/error');
 const { resolveParticipantForActivity } = require('../middleware/participant');
+const { activityManager } = require('../middleware/eventAuth');
 const { pushScoreboard } = require('../services/scoreboard');
 const { notifyActivityFinished } = require('../services/push');
 const { haversineKm } = require('../services/geo');
@@ -199,6 +200,32 @@ router.post('/:id/memory/result', asyncHandler(async (req, res) => {
 
   await pushScoreboard(id);
   res.json({ ok: true });
+}));
+
+// PUT /api/activities/:id/memory-cards — host authors the card labels (each
+// becomes a matching pair). Editable while Draft. { words: string[] } → the
+// embedded activity.memoryCards array. Returns the saved labels.
+router.put('/:id/memory-cards', activityManager, asyncHandler(async (req, res) => {
+  const activity = req.targetActivity;
+  if (activity.type !== ActivityType.Memory) {
+    throw new RuleViolation('This activity is not a memory game.');
+  }
+  if (activity.status !== ActivityStatus.Draft) {
+    throw new RuleViolation('Edit the memory cards while the game is still a draft.', 409);
+  }
+  const words = Array.isArray(req.body?.words) ? req.body.words : [];
+  const cards = words
+    .map((w) => (w == null ? '' : String(w).trim()))
+    .filter((w) => w.length > 0)
+    .slice(0, 60)
+    .map((text, i) => ({ order: i, text: text.slice(0, 120) }));
+  activity.memoryCards = cards;
+  await activity.save();
+  res.json({
+    count: cards.length,
+    words: cards.map((c) => c.text),
+    cards: activity.memoryCards.map((c) => ({ id: idStr(c), order: c.order, text: c.text })),
+  });
 }));
 
 // ── WordGame ───────────────────────────────────────────────────────────────────
