@@ -26,15 +26,23 @@ const accountSchema = new mongoose.Schema({
   },
   // Optional friendly name shown in the host UI; defaults to the username.
   displayName: { type: String, trim: true, maxlength: 60, default: '' },
+  // Optional — invited players get a PASSWORDLESS account (they log in via magic
+  // link) and can later "set a password" to enable normal login.
   password: {
     type: String,
-    required: [true, 'Password is required'],
+    default: null,
     validate: {
-      validator: (v) => /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{10,}$/.test(v),
+      validator: (v) => v == null || /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{10,}$/.test(v),
       message:
         'Password must be at least 10 characters and include an uppercase letter, lowercase letter, and number',
     },
   },
+  // Links this login to its persistent roster identity (the named person whose
+  // scores accumulate across events). Set when an account plays as themselves.
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true, sparse: true },
+  // Shareable code for the friends feature. Lazy-generated on first request;
+  // sparse so the many not-yet-generated accounts don't collide on null.
+  friendCode: { type: String, unique: true, sparse: true, index: true },
   // 'admin' = global super-admin (rundan's site host). Everyone can create and
   // own events; admin can manage every event + the danger zone.
   roles: {
@@ -53,7 +61,8 @@ const accountSchema = new mongoose.Schema({
 });
 
 accountSchema.pre('save', async function hashPassword(next) {
-  if (!this.isModified('password')) return next();
+  // Skip when unchanged or passwordless (invited accounts).
+  if (!this.isModified('password') || this.password == null) return next();
   try {
     const salt = await bcrypt.genSalt(12);
     this.password = await bcrypt.hash(this.password, salt);
@@ -63,7 +72,12 @@ accountSchema.pre('save', async function hashPassword(next) {
   }
 });
 
+accountSchema.methods.hasPassword = function hasPassword() {
+  return !!this.password;
+};
+
 accountSchema.methods.comparePassword = function comparePassword(candidate) {
+  if (!this.password) return Promise.resolve(false); // passwordless ⇒ magic-link only
   return bcrypt.compare(candidate, this.password);
 };
 

@@ -4,6 +4,7 @@
 module.exports = {
   Account: require('./Account'),
   Token: require('./Token'),
+  Friendship: require('./Friendship'),
   User: require('./User'),
   Event: require('./Event'),
   EventMember: require('./EventMember'),

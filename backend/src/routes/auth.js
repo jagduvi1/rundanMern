@@ -8,6 +8,7 @@ const Token = require('../models/Token');
 const emailService = require('../services/email');
 const { requireAuth } = require('../middleware/auth');
 const env = require('../config/env');
+const magicLink = require('../services/magicLink');
 
 // Host/admin account auth — the Glosan template adapted to rundan's Account
 // model. Players never use this (they get anonymous participant tokens). The
@@ -201,9 +202,10 @@ router.post('/login', authLimiter, async (req, res) => {
     const account = await Account.findOne({
       $or: [{ username: username.toLowerCase() }, { email: username.toLowerCase() }],
     });
-    // Always run bcrypt to avoid user-enumeration timing.
+    // Always run bcrypt to avoid user-enumeration timing. A passwordless (invited)
+    // account compares against the dummy hash ⇒ password login fails (use the link).
     const DUMMY_HASH = '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
-    const isMatch = await bcrypt.compare(password, account ? account.password : DUMMY_HASH);
+    const isMatch = await bcrypt.compare(password, account && account.password ? account.password : DUMMY_HASH);
     if (!account || !isMatch) return res.status(401).json({ error: 'Invalid credentials' });
     const accessToken = await issueTokens(account, res);
     res.json({ token: accessToken, user: account.toJSON() });
@@ -330,6 +332,88 @@ router.post('/reset-password', authLimiter, async (req, res) => {
       return res.status(400).json({ error: Object.values(error.errors).map((e) => e.message).join(', ') });
     }
     res.status(500).json({ error: 'Could not reset password.' });
+  }
+});
+
+// ── Magic links (passwordless login + invites) ────────────────────────────────
+
+// POST /api/auth/magic-link — body { email }. Email a returning player a login
+// link. Anti-enumeration: always 200.
+router.post('/magic-link', emailLimiter, async (req, res) => {
+  const ack = { message: 'If the account exists, a login link is on its way.' };
+  try {
+    const { email } = req.body || {};
+    if (!email || typeof email !== 'string') { await noopJitter(); return res.json(ack); }
+    const account = await Account.findOne({ email: email.toLowerCase().trim() });
+    if (account && emailService.isEnabled()) {
+      const raw = await magicLink.createMagicLink({ accountId: account._id });
+      try {
+        await emailService.send({
+          to: account.email,
+          subject: `Your login link — ${env.appName}`,
+          html: emailService.wrapTemplate({
+            title: `Log in to ${env.appName}`,
+            intro: 'Tap to log in. This link is valid for 15 minutes and works once.',
+            ctaUrl: magicLink.magicLinkUrl(raw),
+            ctaLabel: 'Log in',
+          }),
+          text: `Log in: ${magicLink.magicLinkUrl(raw)}`,
+        });
+      } catch (e) { console.error('Magic-link mail failed:', e.message); }
+    } else {
+      await noopJitter();
+    }
+    res.json(ack);
+  } catch (err) {
+    res.json(ack);
+  }
+});
+
+// POST /api/auth/magic-link/consume — body { token }. Logs in (issues tokens) and
+// returns the eventId the link was for (so the SPA lands the player in it).
+router.post('/magic-link/consume', authLimiter, async (req, res) => {
+  try {
+    const doc = await magicLink.consumeMagicLink(req.body?.token);
+    if (!doc) return res.status(400).json({ error: 'The link is invalid or has expired.' });
+    const account = await Account.findById(doc.account);
+    if (!account) return res.status(400).json({ error: 'Account not found.' });
+    if (!account.emailVerified) { account.emailVerified = true; account.emailVerifiedAt = new Date(); }
+    const accessToken = await issueTokens(account, res);
+    res.json({
+      token: accessToken,
+      user: account.toJSON(),
+      eventId: doc.eventId ? String(doc.eventId) : null,
+    });
+  } catch (err) {
+    console.error('Magic-link consume error:', err.message);
+    res.status(500).json({ error: 'Could not log in with that link.' });
+  }
+});
+
+// POST /api/auth/set-password — turn a (possibly passwordless, invited) account
+// into a normal one by setting a password (+ optional username). requireAuth.
+router.post('/set-password', requireAuth, authLimiter, async (req, res) => {
+  try {
+    const { password, username } = req.body || {};
+    if (!password || typeof password !== 'string') return res.status(400).json({ error: 'Password required.' });
+    const account = await Account.findById(req.user.id);
+    if (!account) return res.status(404).json({ error: 'Account not found.' });
+    if (username && typeof username === 'string') {
+      const desired = username.toLowerCase().trim();
+      if (desired && desired !== account.username) {
+        const taken = await Account.exists({ username: desired, _id: { $ne: account._id } });
+        if (taken) return res.status(409).json({ error: 'That username is taken.' });
+        account.username = desired;
+      }
+    }
+    account.password = password; // validated + hashed by the pre-save hook
+    await account.save();
+    res.json({ message: 'Account secured — you can now log in with a password.', user: account.toJSON() });
+  } catch (error) {
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ error: Object.values(error.errors).map((e) => e.message).join(', ') });
+    }
+    res.status(500).json({ error: 'Could not set the password.' });
   }
 });
 

@@ -33,6 +33,9 @@ const simulationRoute = require('./routes/simulation');
 const spotifyRoute = require('./routes/spotify');
 const libraryRoute = require('./routes/library');
 const maintenanceRoute = require('./routes/maintenance');
+const meRoute = require('./routes/me');
+const friendsRoute = require('./routes/friends');
+const invitesRoute = require('./routes/invites');
 
 const app = express();
 // Trust exactly the proxy hops we control (TRUST_PROXY env; default 1 = plain
@@ -123,12 +126,15 @@ app.use('/api/health', healthRoute);
 app.use('/api/bootstrap', bootstrapRoute);
 app.use('/api/auth', authRoute);
 app.use('/api/users', usersRoute);
+app.use('/api/me', meRoute);
+app.use('/api/me', friendsRoute);
 app.use('/api/spotify', spotifyRoute);
 app.use('/api/admin', maintenanceRoute);
 
 // Event-scoped routers (share the /api/events base; distinct subpaths).
 app.use('/api/events', eventsRoute);
 app.use('/api/events', eventSocialRoute);
+app.use('/api/events', invitesRoute);
 
 // Activity-scoped routers (share the /api/activities base; distinct subpaths).
 app.use('/api/activities', activitiesRoute);

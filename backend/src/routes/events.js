@@ -12,7 +12,7 @@ const express = require('express');
 // `canManageEvent`. GETs use `optionalAuth` so anonymous players resolve
 // `canManage=false` rather than 401.
 const {
-  Event, EventMember, Activity, Participant, Question, EventViewer, User,
+  Event, EventMember, Activity, Participant, Question, EventViewer, User, Account,
 } = require('../models');
 const { ActivityStatus } = require('../constants/enums');
 const { idStr, userDto, activityDto } = require('../services/serializers');
@@ -762,7 +762,12 @@ router.post(
 
     // Coerce to a string so a crafted {userId:{$ne:null}} can't match an arbitrary
     // member and leak its (possibly admin) member token (NoSQL operator injection).
-    const userId = typeof req.body?.userId === 'string' ? req.body.userId : '';
+    let userId = typeof req.body?.userId === 'string' ? req.body.userId : '';
+    // "Play as me": a logged-in account claims its own linked roster identity.
+    if (!userId && req.user) {
+      const acct = await Account.findById(req.user.id).select('userId').lean();
+      if (acct && acct.userId) userId = String(acct.userId);
+    }
     if (!userId) throw new RuleViolation('Pick a player to claim.');
 
     const member = await EventMember.findOne({ eventId: event._id, userId })
