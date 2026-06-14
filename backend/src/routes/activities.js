@@ -409,6 +409,29 @@ router.delete('/:id', activityManager, asyncHandler(async (req, res) => {
   res.status(204).end();
 }));
 
+// ── List: standalone / library activities ─────────────────────────────────────
+
+// GET /api/activities — activities the caller can manage that are NOT part of an
+// event (eventId: null), PLUS any public library activities (isPublic: true).
+// Returns ActivityDto[] (newest first) with counts and per-item canManage; items
+// the caller can't manage are filtered out unless they're public. A no-segment GET
+// so it never collides with GET /:id or GET /by-code/:code.
+router.get('/', optionalAuth, asyncHandler(async (req, res) => {
+  const candidates = await Activity.find({
+    $or: [{ eventId: null }, { isPublic: true }],
+  }).sort({ createdUtc: -1, _id: -1 });
+
+  const dtos = [];
+  for (const a of candidates) {
+    // eslint-disable-next-line no-await-in-loop
+    const canManage = await canManageActivity(req, a);
+    if (!canManage && !a.isPublic) continue; // drop what the caller can't see
+    // eslint-disable-next-line no-await-in-loop
+    dtos.push(await loadActivityDto(a, { canManage }));
+  }
+  res.json(dtos);
+}));
+
 // ── Player lookup ─────────────────────────────────────────────────────────────
 
 // GET /api/activities/:id — ActivityDto with per-request canManage.

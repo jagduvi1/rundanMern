@@ -12,12 +12,14 @@ const KEYS = {
   access: 'rundan.access',
   session: (activityId) => `rundan.session.${activityId}`,
   member: (eventId) => `rundan.membertoken.${eventId}`,
-  viewer: (eventId) => `rundan.viewer.${eventId}`,
 };
 
 // Host-auth hooks, wired by AuthContext so the client can read the live access
 // token and trigger a refresh on 401.
 const host = { getToken: () => null, refresh: async () => null, onLogout: async () => {} };
+// Dedupe concurrent refreshes: many in-flight 401s share ONE refresh so cookie
+// rotation doesn't invalidate the others (which would cause a spurious logout).
+let refreshing = null;
 export function wireHostAuth({ getToken, refresh, onLogout }) {
   if (getToken) host.getToken = getToken;
   if (refresh) host.refresh = refresh;
@@ -40,13 +42,6 @@ export const getMemberToken = (eventId) =>
 export const setMemberToken = (eventId, token) =>
   token ? localStorage.setItem(KEYS.member(eventId), token)
         : localStorage.removeItem(KEYS.member(eventId));
-
-export const getViewer = (eventId) => {
-  try { return JSON.parse(localStorage.getItem(KEYS.viewer(eventId)) || 'null'); } catch { return null; }
-};
-export const setViewer = (eventId, viewer) =>
-  viewer ? localStorage.setItem(KEYS.viewer(eventId), JSON.stringify(viewer))
-         : localStorage.removeItem(KEYS.viewer(eventId));
 
 export const getHostToken = () => host.getToken();
 
@@ -80,9 +75,10 @@ async function request(method, path, opts = {}, allowRetry = true) {
     body: isForm ? body : body !== undefined ? JSON.stringify(body) : undefined,
   });
 
-  // Host access token expired → refresh once, then retry.
+  // Host access token expired → refresh once (deduped), then retry.
   if (res.status === 401 && allowRetry && token) {
-    const fresh = await host.refresh();
+    refreshing = refreshing || host.refresh().finally(() => { refreshing = null; });
+    const fresh = await refreshing;
     if (fresh) return request(method, path, opts, false);
   }
 

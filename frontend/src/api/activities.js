@@ -1,6 +1,7 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client';
 
 // Activities. Base: /api/activities
+export const listActivities = () => apiGet('/activities');
 export const createActivity = (body) => apiPost('/activities', body);
 export const getActivity = (id) => apiGet(`/activities/${id}`, { activityId: id });
 export const getActivityByCode = (code) => apiGet(`/activities/by-code/${code}`);

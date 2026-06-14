@@ -5,6 +5,7 @@
 import {
   ActivityType, MatchFormat, Measurement, ScoringMode, ScoreEntryMode, SlapMode,
 } from '../config/enums';
+import { sanitizeRichText } from '../components/RichTextEditor';
 
 // Whole numbers plain; fractions to ≤2 dp. Mirrors Fmt.Num (invariant culture).
 export function num(v) {
@@ -19,7 +20,9 @@ export function num(v) {
 // this client-side. Returns an object ready to spread into dangerouslySetInnerHTML.
 export function richHtml(text) {
   if (!text || !text.trim()) return { __html: '' };
-  if (text.includes('<')) return { __html: text };
+  // Sanitize on the render path too (allow-list) — never trust stored HTML even
+  // though the editor also sanitizes on save. Blocks stored XSS in descriptions.
+  if (text.includes('<')) return { __html: sanitizeRichText(text) };
   const escaped = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

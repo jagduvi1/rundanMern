@@ -169,7 +169,11 @@ async function penaltyFor(eventId, slappedUserId) {
   if (idx < 0) return 0;
 
   const total = entries[idx].totalPoints;
-  const following = entries.slice(idx + 1).find((e) => e.totalPoints < total);
+  // "Lead over the player JUST below them" — the immediately-following entry in
+  // rank order (entries are already rank-sorted). A tied next player ⇒ 0 lead ⇒
+  // 0 penalty. (Previously skipped tied players to the first strictly-lower one,
+  // over-penalizing on a multi-way tie at the top.)
+  const following = entries[idx + 1];
   const floor = following ? following.totalPoints : 0;
   return Math.max(0, (total - floor) / 2);
 }
@@ -356,16 +360,22 @@ async function performSlap(event, { activityId, slappedUserId, recipientUserId }
 
   const penalty = await penaltyFor(eventId, slappedUserId);
 
-  await Slap.create({
-    eventId: event._id,
-    activityId: activity._id,
-    slapperUserId,
-    slappedUserId: slapped,
-    recipientUserId: recipient,
-    penalty,
-    skipped: false,
-    createdUtc: new Date(),
-  });
+  try {
+    await Slap.create({
+      eventId: event._id,
+      activityId: activity._id,
+      slapperUserId,
+      slappedUserId: slapped,
+      recipientUserId: recipient,
+      penalty,
+      skipped: false,
+      createdUtc: new Date(),
+    });
+  } catch (e) {
+    // Unique on activityId — two concurrent takes race; the loser gets a clear message.
+    if (e && e.code === 11000) throw new RuleViolation('Someone already resolved this slap.', 409);
+    throw e;
+  }
 }
 
 /**

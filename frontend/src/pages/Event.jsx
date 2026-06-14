@@ -51,7 +51,7 @@ import SlapCeremony from '../components/SlapCeremony';
 const ARRIVAL_RADIUS = 25;
 const HOST_TYPES = [
   ActivityType.Quiz, ActivityType.Tipspromenad, ActivityType.Boule, ActivityType.ScoreGame,
-  ActivityType.WordGame, ActivityType.MapPin, ActivityType.MusicQuiz,
+  ActivityType.WordGame, ActivityType.MapPin, ActivityType.MusicQuiz, ActivityType.Memory,
 ];
 
 const actionLabel = (status) => ({

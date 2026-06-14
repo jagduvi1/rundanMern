@@ -9,6 +9,7 @@ const env = require('./config/env');
 const { uploadsDir } = require('./config/paths');
 const { accessGate } = require('./middleware/accessGate');
 const { optionalAuth } = require('./middleware/auth');
+const mongoSanitize = require('./middleware/mongoSanitize');
 const { notFound, errorHandler } = require('./middleware/error');
 
 // Ensure every model/schema is registered up front.
@@ -34,7 +35,10 @@ const libraryRoute = require('./routes/library');
 const maintenanceRoute = require('./routes/maintenance');
 
 const app = express();
-app.set('trust proxy', 2);
+// Exactly one proxy hop (the nginx container) sits in front in production.
+// Trusting more would let a client spoof X-Forwarded-For and forge req.ip,
+// defeating the per-IP rate limiters.
+app.set('trust proxy', 1);
 
 app.use(
   helmet({
@@ -53,6 +57,8 @@ app.use(
 app.use(compression());
 app.use(cookieParser());
 app.use(express.json({ limit: '256kb' }));
+// Strip Mongo operator keys from inputs (NoSQL injection defense-in-depth).
+app.use(mongoSanitize);
 
 // CORS — supports a single or comma-separated FRONTEND_URL. Custom rundan
 // headers must be allow-listed so the browser may send them cross-origin.
@@ -88,6 +94,18 @@ const apiLimiter = rateLimit({
   handler: (req, res) => res.status(429).json({ error: 'Too many requests, please try again later' }),
 });
 app.use('/api/', apiLimiter);
+
+// Tighter limit on writes (mutations) to curb spam/abuse of the anonymous write
+// surface (chat, photos, answers, joins). Reads (GET) are unaffected.
+const writeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 400,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS',
+  handler: (req, res) => res.status(429).json({ error: 'Too many requests, please slow down.' }),
+});
+app.use('/api/', writeLimiter);
 
 // Optional shared site gate (no-op unless ACCESS_CODE is set).
 app.use(accessGate);

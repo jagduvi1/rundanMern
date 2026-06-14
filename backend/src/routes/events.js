@@ -24,6 +24,7 @@ const { uniqueJoinCode } = require('../utils/joinCode');
 const { buildStandings } = require('../services/standings');
 const teams = require('../services/teams');
 const { computePendingSlap } = require('../services/slap');
+const { pushScoreboard } = require('../services/scoreboard');
 const geo = require('../services/geo');
 
 const router = express.Router();
@@ -274,6 +275,7 @@ router.post(
       geo.withinRadius(la, ln, tLat, tLng, radius > 0 ? radius : 25);
 
     const started = [];
+    const startedDocs = [];
     for (const a of open) {
       const hereByActivity =
         a.latitude != null && a.longitude != null && within(lat, lng, a.latitude, a.longitude, a.radiusMeters || 0);
@@ -286,13 +288,20 @@ router.post(
         // eslint-disable-next-line no-await-in-loop
         await a.save();
         started.push(idStr(a));
+        startedDocs.push(a);
       }
     }
 
-    if (started.length > 0) {
+    if (startedDocs.length > 0) {
       const { activityStatusChanged } = require('../socket/emit');
-      for (const aid of started) {
-        activityStatusChanged(aid, { activityId: aid, status: ActivityStatus.Live });
+      const event = await Event.findById(req.params.id);
+      for (const a of startedDocs) {
+        // Generate teams (roster events) so players can claim a session, then push.
+        // eslint-disable-next-line no-await-in-loop
+        if (event) await teams.ensureTeams(event, a);
+        // eslint-disable-next-line no-await-in-loop
+        await pushScoreboard(a._id);
+        activityStatusChanged(idStr(a), { activityId: idStr(a), status: ActivityStatus.Live });
       }
     }
 
@@ -547,6 +556,77 @@ router.put(
   })
 );
 
+// ── Event-wide simulate / reset (event-host) ──────────────────────────────────
+
+// POST /api/events/:id/simulate — dry-run fill every activity (in running order)
+// with plausible random results so the host can preview the whole event before the
+// real day. Each activity is wrapped in try/catch so an unsimulatable one is
+// skipped rather than aborting the batch. Returns { simulated: <count> }.
+router.post(
+  '/:id/simulate',
+  requireAuth,
+  eventManager,
+  asyncHandler(async (req, res) => {
+    // eslint-disable-next-line global-require
+    const simulation = require('../services/simulation');
+    const event = req.targetEvent;
+    const activities = await Activity.find({ eventId: event._id }).sort({ order: 1, _id: 1 });
+
+    let simulated = 0;
+    for (const a of activities) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await simulation.simulate(a);
+        simulated += 1;
+      } catch (e) {
+        // Skip activities that can't be simulated (e.g. no questions/participants).
+      }
+    }
+
+    res.json({ simulated });
+  })
+);
+
+// POST /api/events/:id/reset-results — clear every activity's derived state and
+// return each to Draft (run stamps cleared), pushing the (now empty) scoreboard
+// per activity. When ?clearChat=true, also wipes the event chat. Mirrors the
+// per-activity reset the host can run, applied across the whole event. Returns
+// { reset: <count> }.
+router.post(
+  '/:id/reset-results',
+  requireAuth,
+  eventManager,
+  asyncHandler(async (req, res) => {
+    // eslint-disable-next-line global-require
+    const simulation = require('../services/simulation');
+    // eslint-disable-next-line global-require
+    const { pushScoreboard: push } = require('../services/scoreboard');
+    const { ChatMessage } = require('../models');
+    const event = req.targetEvent;
+    const activities = await Activity.find({ eventId: event._id }).sort({ order: 1, _id: 1 });
+
+    let reset = 0;
+    for (const a of activities) {
+      // eslint-disable-next-line no-await-in-loop
+      await simulation.clearResults(a);
+      a.status = ActivityStatus.Draft;
+      a.startedUtc = null;
+      a.finishedUtc = null;
+      // eslint-disable-next-line no-await-in-loop
+      await a.save();
+      // eslint-disable-next-line no-await-in-loop
+      await push(a._id);
+      reset += 1;
+    }
+
+    if (req.query.clearChat === 'true') {
+      await ChatMessage.deleteMany({ eventId: event._id });
+    }
+
+    res.json({ reset });
+  })
+);
+
 // ── Players: look up + standings ──────────────────────────────────────────────
 
 // GET /api/events/:id — load an event by id (access-gated). Adds pendingSlap and
@@ -680,7 +760,12 @@ router.post(
     const event = await Event.findOne({ joinCode: normalized });
     if (!event) throw new RuleViolation('No event with that code.', 404);
 
-    const member = await EventMember.findOne({ eventId: event._id, userId: req.body?.userId })
+    // Coerce to a string so a crafted {userId:{$ne:null}} can't match an arbitrary
+    // member and leak its (possibly admin) member token (NoSQL operator injection).
+    const userId = typeof req.body?.userId === 'string' ? req.body.userId : '';
+    if (!userId) throw new RuleViolation('Pick a player to claim.');
+
+    const member = await EventMember.findOne({ eventId: event._id, userId })
       .populate('userId', 'name');
     if (!member) throw new RuleViolation("That player isn't on this event's roster.", 404);
 
@@ -697,7 +782,7 @@ router.post(
       // eslint-disable-next-line no-await-in-loop
       const generated = await teams.ensureTeams(event, act);
       const myTeam = generated.find((t) =>
-        (t.members || []).some((m) => String(m.userId) === String(req.body.userId))
+        (t.members || []).some((m) => String(m.userId) === String(userId))
       );
       if (myTeam) {
         slots.push({

@@ -14,14 +14,14 @@ const path = require('path');
 const multer = require('multer');
 
 const {
-  Activity, Participant, Question, Answer, ScoreEntry, User,
+  Activity, Participant, Question, Answer, ScoreEntry, User, BracketMatch,
 } = require('../models');
 const {
   ActivityType, ActivityStatus, ScoreEntryMode, Measurement,
 } = require('../constants/enums');
 const { idStr, scoreEntryDto, activityPhotoDto } = require('../services/serializers');
 const { RuleViolation, asyncHandler } = require('../middleware/error');
-const { canManageActivity } = require('../middleware/eventAuth');
+const { canManageActivity, activityManager } = require('../middleware/eventAuth');
 const { resolveParticipantForActivity, HEADER: PARTICIPANT_HEADER } = require('../middleware/participant');
 const { pushScoreboard } = require('../services/scoreboard');
 const scoring = require('../services/scoring');
@@ -30,6 +30,13 @@ const { uploadsDir } = require('../config/paths');
 const emit = require('../socket/emit');
 
 const router = express.Router();
+
+// Resolve (and assert) the participant BEFORE multer touches the request, so an
+// unauthenticated/non-participant upload never writes a file to disk.
+const requireParticipant = asyncHandler(async (req, res, next) => {
+  req.participant = await resolveParticipantForActivity(req, req.params.id);
+  next();
+});
 
 // ── Photo upload (multer → uploads dir) ───────────────────────────────────────
 // Player photos: random 32-hex name + original ext, 8 MB cap, image extensions
@@ -216,6 +223,22 @@ router.get('/:id/my-answers', asyncHandler(async (req, res) => {
   })));
 }));
 
+// POST /api/activities/:id/music/maybe-finish — host nudge to finish a MusicQuiz
+// once every track's answer window has elapsed (the host panel calls this when its
+// countdown hits 0). Idempotent; returns { finished }.
+router.post('/:id/music/maybe-finish', activityManager, asyncHandler(async (req, res) => {
+  const activity = req.targetActivity;
+  let finished = false;
+  if (activity.type === ActivityType.MusicQuiz && activity.status === ActivityStatus.Live) {
+    finished = await tryAutoFinishQuestions(activity);
+    if (finished) {
+      emit.activityStatusChanged(idStr(activity), { activityId: idStr(activity), status: activity.status });
+      notifyActivityFinished(activity._id).catch(() => {});
+    }
+  }
+  res.json({ finished });
+}));
+
 // ── Scores (Boule / generic score game) ───────────────────────────────────────
 
 // RecordScoreRequest persistence (port of GameService.RecordScoreAsync). Records /
@@ -224,6 +247,11 @@ router.get('/:id/my-answers', asyncHandler(async (req, res) => {
 async function recordScore(activity, req) {
   if (![ActivityType.Boule, ActivityType.ScoreGame, ActivityType.Memory].includes(activity.type)) {
     throw new RuleViolation('This activity does not use score rounds.');
+  }
+  // A Boule tournament with a drawn bracket is scored from the bracket, not manual
+  // score lines — those would silently leak into the combined event standings.
+  if (activity.type === ActivityType.Boule && (await BracketMatch.exists({ activityId: activity._id }))) {
+    throw new RuleViolation('This tournament is scored from its bracket.', 409);
   }
   if (activity.status !== ActivityStatus.Live) {
     throw new RuleViolation('This activity is not accepting scores right now.', 409);
@@ -380,11 +408,11 @@ router.get('/:id/photos', asyncHandler(async (req, res) => {
 }));
 
 // POST /api/activities/:id/photos — participant of THIS activity uploads one image.
-// multipart/form-data field `file`. multer runs first; a participant-token check
-// follows (it must resolve to a player of this activity).
-router.post('/:id/photos', photoUpload.single('file'), asyncHandler(async (req, res) => {
+// multipart/form-data field `file`. The participant token is checked (requireParticipant)
+// BEFORE multer parses the body, so an unauthorized request never writes to disk.
+router.post('/:id/photos', requireParticipant, photoUpload.single('file'), asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const participant = await resolveParticipantForActivity(req, id);
+  const { participant } = req;
   if (!req.file) throw new RuleViolation('No photo was uploaded.');
 
   const { ActivityPhoto } = require('../models');

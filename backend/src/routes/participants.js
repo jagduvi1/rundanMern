@@ -56,9 +56,12 @@ router.post('/by-code/:code/join', optionalAuth, asyncHandler(async (req, res) =
   if (name.length === 0) throw new RuleViolation('Enter a name to join with.');
   if (name.length > 60) name = name.slice(0, 60);
 
-  // Reconnect with a previously issued token (same device returning).
-  if (r.existingToken) {
-    const mine = await Participant.findOne({ token: r.existingToken, activityId: activity._id });
+  // Reconnect with a previously issued token (same device returning). Coerce to a
+  // string so a crafted body like {existingToken:{$gt:""}} can't match another
+  // player's row (NoSQL operator injection → session hijack).
+  const existingToken = typeof r.existingToken === 'string' ? r.existingToken.trim() : '';
+  if (existingToken) {
+    const mine = await Participant.findOne({ token: existingToken, activityId: activity._id });
     if (mine) {
       if (mine.displayName !== name) {
         const clash = await Participant.exists({

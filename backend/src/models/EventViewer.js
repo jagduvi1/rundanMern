@@ -10,4 +10,8 @@ const eventViewerSchema = new mongoose.Schema({
   lastSeenUtc: { type: Date, default: Date.now },
 });
 
+// Stale viewers drop off ~15 min after their last heartbeat (matches the
+// recently-seen window); the heartbeat refreshes lastSeenUtc and resets the TTL.
+eventViewerSchema.index({ lastSeenUtc: 1 }, { expireAfterSeconds: 900 });
+
 module.exports = mongoose.model('EventViewer', eventViewerSchema);

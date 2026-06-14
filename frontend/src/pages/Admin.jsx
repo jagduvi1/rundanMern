@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listEvents, createEvent, deleteEvent } from '../api/events';
-import { createActivity } from '../api/activities';
+import { createActivity, listActivities } from '../api/activities';
 import { getLibraryAvailable, getLibraryTags } from '../api/library';
 import {
   listConnections, setClientId, validateConnection, deleteConnection,
@@ -69,6 +69,7 @@ export default function Admin() {
   const [libraryCount, setLibraryCount] = useState(0);
   const [topics, setTopics] = useState(0);
   const [connections, setConnections] = useState([]);
+  const [standalone, setStandalone] = useState([]);
 
   const [newEventName, setNewEventName] = useState('');
   const [stTitle, setStTitle] = useState('');
@@ -101,6 +102,7 @@ export default function Admin() {
       setTopics(arr.filter((t) => String(t).startsWith('topic:')).length);
     }).catch(() => {});
     if (spotifyClientId) listConnections().then(setConnections).catch(() => {});
+    listActivities().then((list) => setStandalone(Array.isArray(list) ? list : [])).catch(() => {});
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
@@ -282,10 +284,29 @@ export default function Admin() {
         </div>
       </div>
 
-      {/* Standalone activity (create only — no list endpoint) */}
+      {/* Standalone activity */}
       <div className="card stack">
         <h2 style={{ margin: 0 }}>Fristående aktivitet</h2>
         <p className="muted small">Skapa en aktivitet utan evenemang. Den öppnas direkt i hanteringsvyn.</p>
+
+        {standalone.length > 0 ? (
+          <div className="stack" style={{ gap: 6 }}>
+            {standalone.map((a) => (
+              <div key={a.id} className="card stack" style={{ background: 'var(--surface-2)', gap: 6 }}>
+                <div className="spread">
+                  <h3 style={{ margin: 0 }}>{a.title} <span className="muted small">· {typeLabel(a.type)}</span></h3>
+                  <StatusBadge status={a.status} />
+                </div>
+                <div className="muted small">kod {a.joinCode}{a.isPublic ? ' · publik' : ''}</div>
+                <div className="row">
+                  <button type="button" className="btn sm" onClick={() => navigate(`/manage/${a.id}`)}>Hantera</button>
+                  <button type="button" className="btn ghost sm" onClick={() => navigate(`/a/${a.id}`)}>Öppna</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
         <div className="row wrap">
           <input
             className="grow"

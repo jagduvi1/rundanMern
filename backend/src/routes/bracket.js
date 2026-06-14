@@ -9,8 +9,9 @@
 const express = require('express');
 
 const { Participant } = require('../models');
+const { ActivityStatus } = require('../constants/enums');
 const { idStr } = require('../services/serializers');
-const { asyncHandler } = require('../middleware/error');
+const { RuleViolation, asyncHandler } = require('../middleware/error');
 const { activityManager } = require('../middleware/eventAuth');
 const { pushScoreboard } = require('../services/scoreboard');
 const { notifyActivityFinished } = require('../services/push');
@@ -62,6 +63,10 @@ router.post('/:id/bracket/draw', activityManager, asyncHandler(async (req, res) 
 // sets[] = { a, b } (one entry for free scoring, N for best-of-N).
 router.post('/:id/bracket/result', activityManager, asyncHandler(async (req, res) => {
   const activity = req.targetActivity;
+  // Like every other gameplay write, results may only be entered while Live.
+  if (activity.status !== ActivityStatus.Live) {
+    throw new RuleViolation("This tournament isn't live right now.", 409);
+  }
   const r = req.body || {};
   const sets = Array.isArray(r.sets) ? r.sets.map((s) => ({ a: s.a, b: s.b })) : [];
 

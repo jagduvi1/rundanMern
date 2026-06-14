@@ -15,6 +15,14 @@ if (/change[-_]?me|placeholder|example|please[-_]?change/i.test(env.jwtSecret)) 
   process.exit(1);
 }
 
+// Production hardening — warn (never exit) on insecure-by-default settings.
+if (env.isProd && env.seedCode === 'CALLE') {
+  console.warn('[security] SEED_CODE is the default "CALLE" — the destructive clean-and-seed confirmation code is public. Set SEED_CODE to a private value.');
+}
+if (env.isProd && !env.requiresAccessCode) {
+  console.warn('[security] No ACCESS_CODE set — registration is open and the FIRST account to register becomes super-admin. Set ACCESS_CODE, or register the host account immediately after deploy.');
+}
+
 const http = require('http');
 const fs = require('fs');
 const app = require('./src/app');

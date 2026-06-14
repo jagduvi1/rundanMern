@@ -9,7 +9,12 @@ let socket = null;
 let socketPromise = null;
 
 export async function getSocket() {
-  if (socket && socket.connected) return socket;
+  if (socket) {
+    // Resurrect a socket that exhausted its auto-reconnect attempts (otherwise the
+    // singleton would stay permanently dead and callers attach to a dead socket).
+    if (!socket.connected && !socket.active) socket.connect();
+    return socket;
+  }
   if (!socketPromise) {
     socketPromise = (async () => {
       const { io } = await import('socket.io-client');
