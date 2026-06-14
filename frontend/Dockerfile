@@ -1,8 +1,11 @@
 # ── Build stage ──────────────────────────────────────────────────────────────
 FROM node:20-alpine AS build
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci
+# Copy .npmrc too (legacy-peer-deps) so install resolves React 19 peers.
+# `npm install` (not `npm ci`) so the build is robust to a lockfile generated
+# on another platform.
+COPY package*.json .npmrc ./
+RUN npm install --no-audit --no-fund
 COPY . .
 RUN npm run build
 

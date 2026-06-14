@@ -3,9 +3,10 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install production deps first for better layer caching.
+# Install production deps first for better layer caching. `npm install` (not
+# `npm ci`) so the build is robust to a lockfile generated on another platform.
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev --no-audit --no-fund
 
 COPY . .
 
