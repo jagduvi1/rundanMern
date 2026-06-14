@@ -8,15 +8,30 @@ const rateLimit = require('express-rate-limit');
 const env = require('./config/env');
 const { uploadsDir } = require('./config/paths');
 const { accessGate } = require('./middleware/accessGate');
+const { optionalAuth } = require('./middleware/auth');
 const { notFound, errorHandler } = require('./middleware/error');
 
 // Ensure every model/schema is registered up front.
 require('./models');
 
-// Route modules (mounted incrementally as the port grows).
+// Route modules.
 const healthRoute = require('./routes/health');
 const bootstrapRoute = require('./routes/bootstrap');
 const authRoute = require('./routes/auth');
+const usersRoute = require('./routes/users');
+const eventsRoute = require('./routes/events');
+const eventSocialRoute = require('./routes/eventSocial');
+const activitiesRoute = require('./routes/activities');
+const questionsRoute = require('./routes/questions');
+const participantsRoute = require('./routes/participants');
+const gameplayRoute = require('./routes/gameplay');
+const bracketRoute = require('./routes/bracket');
+const gamesRoute = require('./routes/games');
+const musicRoute = require('./routes/music');
+const simulationRoute = require('./routes/simulation');
+const spotifyRoute = require('./routes/spotify');
+const libraryRoute = require('./routes/library');
+const maintenanceRoute = require('./routes/maintenance');
 
 const app = express();
 app.set('trust proxy', 2);
@@ -77,6 +92,11 @@ app.use('/api/', apiLimiter);
 // Optional shared site gate (no-op unless ACCESS_CODE is set).
 app.use(accessGate);
 
+// Populate req.user (or null) for every request so the event/activity
+// authorization helpers can read the host account on any route. Routes that
+// must *require* a login still use requireAuth/requireAdmin on top.
+app.use(optionalAuth);
+
 // User-uploaded images (photo wall, event/activity images).
 app.use('/uploads', express.static(uploadsDir, { maxAge: '7d', fallthrough: true }));
 
@@ -84,9 +104,26 @@ app.use('/uploads', express.static(uploadsDir, { maxAge: '7d', fallthrough: true
 app.use('/api/health', healthRoute);
 app.use('/api/bootstrap', bootstrapRoute);
 app.use('/api/auth', authRoute);
-// NOTE: users, events, activities, participants, questions, gameplay, bracket,
-// mappin, memory, music, spotify, simulation, wordgame, library, maintenance,
-// push, chat — mounted here as each route module lands.
+app.use('/api/users', usersRoute);
+app.use('/api/spotify', spotifyRoute);
+app.use('/api/admin', maintenanceRoute);
+
+// Event-scoped routers (share the /api/events base; distinct subpaths).
+app.use('/api/events', eventsRoute);
+app.use('/api/events', eventSocialRoute);
+
+// Activity-scoped routers (share the /api/activities base; distinct subpaths).
+app.use('/api/activities', activitiesRoute);
+app.use('/api/activities', participantsRoute);
+app.use('/api/activities', questionsRoute);
+app.use('/api/activities', gameplayRoute);
+app.use('/api/activities', bracketRoute);
+app.use('/api/activities', gamesRoute);
+app.use('/api/activities', musicRoute);
+app.use('/api/activities', simulationRoute);
+
+// Question library (/api/question-library/*, /api/activities/:id/questions/from-library).
+app.use('/api', libraryRoute);
 
 app.use(notFound);
 app.use(errorHandler);
