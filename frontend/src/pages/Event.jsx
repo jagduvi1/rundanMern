@@ -38,7 +38,7 @@ import {
 import {
   saveLastEventId, getEventName, saveEventName, getEventUserId, saveEventUserId,
   isViewer as readViewer, getViewerName, getViewerToken, setViewer,
-  isProxying, getProxy, isPreview,
+  isProxying, getProxy, isPreview, setPreview,
 } from '../utils/appState';
 import { useGeolocation, distanceMeters } from '../utils/useGeolocation';
 import { vibrate } from '../utils/vibrate';
@@ -104,6 +104,7 @@ export default function Event() {
   const [busy, setBusy] = useState(false);
   const [infoOpen, setInfoOpen] = useState(true);
   const [arrivedId, setArrivedId] = useState(null);
+  const [shareOpen, setShareOpen] = useState(false); // QR/share modal (render-only)
 
   const eventRef = useRef(null);
   eventRef.current = event;
@@ -114,7 +115,25 @@ export default function Event() {
 
   const proxy = getProxy();
   const proxyHere = isProxying() && proxy?.eventId === String(id);
-  const canManage = !isPreview() && !!event?.canManage;
+  // "Preview as player": a host can flip into the exact player view to see what
+  // their guests see. While previewing, canManage is false so the host branch is
+  // skipped; a banner lets them flip back.
+  const [previewMode, setPreviewMode] = useState(isPreview());
+  const isReallyHost = !!event?.canManage;
+  const canManage = isReallyHost && !previewMode;
+  const togglePreview = (on) => {
+    setPreview(on);
+    setPreviewMode(on);
+    try { window.scrollTo(0, 0); } catch { /* ignore */ }
+  };
+  const previewBanner = (isReallyHost && previewMode) ? (
+    <div className="card" style={{ border: '1px solid var(--accent)', background: 'var(--accent-soft)' }}>
+      <div className="spread">
+        <span><b>👁 Spelarvy</b> — så här ser dina spelare evenemanget.</span>
+        <button type="button" className="btn sm" onClick={() => togglePreview(false)}>← Tillbaka till värdläget</button>
+      </div>
+    </div>
+  ) : null;
 
   const eventUnderway = !!event && (event.activities || []).some(
     (a) => a.status === ActivityStatus.Live || a.status === ActivityStatus.Finished,
@@ -462,249 +481,321 @@ export default function Event() {
 
   const activities = [...(event.activities || [])].sort((a, b) => a.order - b.order);
   const canChat = !!chatAuthor({ proxyHere, proxy, eventName, viewer, viewerNameSaved, canManage });
+  const shareUrl = `${window.location.origin}/e/${event.id}`;
 
-  return (
-    <>
-      {toast}
+  // ── Reusable render blocks (composed per role below) ──────────────────────────
+  // Logic is untouched; these are just the existing markup pieces, named so the
+  // host / player / viewer flows can order them without duplication.
 
-      {/* Header */}
-      <div className="card stack">
-        <div className="row">
-          {eventUnderway ? (
-            <h1 className="grow" style={{ margin: 0 }}>
-              <button
-                type="button"
-                onClick={() => setInfoOpen((v) => !v)}
-                aria-expanded={infoOpen}
-                style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}
-              >
-                <span className="grow">{event.name}</span>
-                <span aria-hidden>{infoOpen ? '⌄' : '›'}</span>
-              </button>
-            </h1>
-          ) : (
-            <h1 className="grow" style={{ margin: 0 }}>{event.name}</h1>
-          )}
-          {reconnecting ? <Pill>Återansluter…</Pill> : null}
-        </div>
-
-        {event.imageUrl ? <img src={event.imageUrl} alt="" className="media-img" style={{ borderRadius: 'var(--radius-sm)' }} /> : null}
-
-        {(!eventUnderway || infoOpen) ? (
-          <div className="stack">
-            {event.description ? <div className="rte-content" dangerouslySetInnerHTML={richHtml(event.description)} /> : null}
-            <div className="row wrap muted small">
-              <span>Evenemangskod {event.joinCode}</span>
-              <span>·</span>
-              <span>Lag om {event.teamSize}</span>
-              {scheduleText(event) ? (<><span>·</span><span>📅 {scheduleText(event)}</span></>) : null}
-            </div>
-          </div>
-        ) : null}
-
-        {!eventOpenForMe ? (
-          <div className="card" style={{ borderColor: 'var(--warn)', background: 'var(--surface-2)' }}>
-            <span className="muted">{availabilityMessage(event)}</span>
-          </div>
-        ) : null}
+  const headerBlock = (
+    <div className="card stack">
+      <div className="row">
+        {eventUnderway ? (
+          <h1 className="grow" style={{ margin: 0 }}>
+            <button
+              type="button"
+              onClick={() => setInfoOpen((v) => !v)}
+              aria-expanded={infoOpen}
+              style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}
+            >
+              <span className="grow">{event.name}</span>
+              <span aria-hidden>{infoOpen ? '⌄' : '›'}</span>
+            </button>
+          </h1>
+        ) : (
+          <h1 className="grow" style={{ margin: 0 }}>{event.name}</h1>
+        )}
+        {reconnecting ? <Pill>Återansluter…</Pill> : null}
       </div>
 
-      {/* Final results */}
-      {event.isComplete && standings && (standings.entries || []).length > 0 ? (
-        <div className="card stack center">
-          <Pill kind="ok">Slutresultat</Pill>
-          <h2 style={{ margin: '.3rem 0' }}>{winnerLine(standings)}</h2>
-          <p className="muted">{event.name} är klart — tack för att ni spelade!</p>
-          <div className="row" style={{ justifyContent: 'center', gap: 14, flexWrap: 'wrap' }}>
-            {(standings.entries || []).slice(0, 3).map((e) => (
-              <div key={e.userId ?? e.displayName} className="center">
-                <div style={{ fontSize: '1.4rem', fontWeight: 800 }}>{e.rank}</div>
-                <div>{e.displayName}</div>
-                <div className="muted">{num(e.totalPoints)} p</div>
-              </div>
-            ))}
+      {event.imageUrl ? <img src={event.imageUrl} alt="" className="media-img" style={{ borderRadius: 'var(--radius-sm)' }} /> : null}
+
+      {(!eventUnderway || infoOpen) ? (
+        <div className="stack">
+          {event.description ? <div className="rte-content" dangerouslySetInnerHTML={richHtml(event.description)} /> : null}
+          <div className="row wrap muted small" style={{ alignItems: 'center' }}>
+            <span>Evenemangskod <b style={{ letterSpacing: '0.08em' }}>{event.joinCode}</b></span>
+            <span>·</span>
+            <span>Lag om {event.teamSize}</span>
+            {scheduleText(event) ? (<><span>·</span><span>📅 {scheduleText(event)}</span></>) : null}
+            <button type="button" className="btn ghost sm" onClick={() => copyText(shareUrl, show, 'Länk kopierad.')}>Kopiera kod</button>
+            <button type="button" className="btn ghost sm" onClick={() => setShareOpen(true)}>Dela</button>
           </div>
-          <Link className="btn sm block" to={`/diploma/${id}`}>🏆 Öppna vinnardiplomet</Link>
         </div>
       ) : null}
 
-      {/* Standings */}
-      <div className="card">
-        <h2>{event.isComplete ? 'Slutställning' : 'Totalställning'}</h2>
-        <p className="muted small" style={{ marginTop: '-.4rem' }}>
-          {event.scoring === EventScoring.Placement
-            ? 'Placeringspoäng — varje avslutad aktivitet ger poäng efter placering.'
-            : 'Kumulativa poäng — varje lags faktiska poäng räknas ihop.'}
-        </p>
-        {!standings || (standings.entries || []).length === 0 ? (
-          <p className="muted center">Inga poäng ännu — de räknas ihop över alla aktiviteter.</p>
-        ) : (
-          <table className="board">
-            <tbody>
-              {standings.entries.map((e) => (
-                <tr key={e.userId ?? e.displayName} className={isMe(e.displayName) ? 'me' : undefined}>
-                  <td className="rank">{e.rank}</td>
-                  <td>
-                    <b>{e.displayName}{isMe(e.displayName) ? <span className="muted"> · Du</span> : null}</b>
-                    <div className="muted small">{e.activitiesPlayed} av {activities.length} aktiviteter</div>
-                  </td>
-                  {event.slapMode !== SlapMode.Off ? (
-                    <td className="small" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <div style={{ color: 'var(--danger)' }}>{e.slapLost > 0 ? `−${num(e.slapLost)}` : '—'}</div>
-                      <div style={{ color: 'var(--ok)' }}>{e.slapReceived > 0 ? `+${num(e.slapReceived)}` : '—'}</div>
-                    </td>
-                  ) : null}
-                  <td className="pts">{num(e.totalPoints)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      {!eventOpenForMe ? (
+        <div className="card" style={{ borderColor: 'var(--warn)', background: 'var(--surface-2)' }}>
+          <span className="muted">{availabilityMessage(event)}</span>
+        </div>
+      ) : null}
+    </div>
+  );
 
-      {/* Group chat */}
-      <div className="card stack">
-        <div className="row">
-          <h2 className="grow">Chatt</h2>
-          {hasWebPush && isPushSupported() ? (
-            <button type="button" className="btn ghost sm" onClick={enableAlerts}>🔔 Aviseringar</button>
-          ) : null}
-        </div>
-        <div style={{ maxHeight: '16rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '.45rem' }}>
-          {chat.length === 0 ? (
-            <p className="muted center" style={{ margin: 0 }}>Inga meddelanden än — säg hej! 👋</p>
-          ) : (
-            chat.map((m) => (
-              <div key={m.id} style={{ fontSize: '.9rem' }}>
-                <b>{m.author}</b>{' '}
-                <span className="muted small">{new Date(m.createdUtc).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}</span>
-                <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{m.text}</div>
-              </div>
-            ))
-          )}
-        </div>
-        {canChat ? (
-          <div className="row">
-            <input
-              className="grow"
-              placeholder="Meddela alla…"
-              maxLength={1000}
-              value={chatText}
-              onChange={(e) => setChatText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') sendChat(); }}
-            />
-            <button type="button" className="btn sm" onClick={sendChat} disabled={!chatText.trim()}>Skicka</button>
+  const finalResultsBlock = event.isComplete && standings && (standings.entries || []).length > 0 ? (
+    <div className="card stack center">
+      <Pill kind="ok">Slutresultat</Pill>
+      <h2 style={{ margin: '.3rem 0' }}>{winnerLine(standings)}</h2>
+      <p className="muted">{event.name} är klart — tack för att ni spelade!</p>
+      <div className="row" style={{ justifyContent: 'center', gap: 14, flexWrap: 'wrap' }}>
+        {(standings.entries || []).slice(0, 3).map((e) => (
+          <div key={e.userId ?? e.displayName} className="center">
+            <div style={{ fontSize: '1.4rem', fontWeight: 800 }}>{e.rank}</div>
+            <div>{e.displayName}</div>
+            <div className="muted">{num(e.totalPoints)} p</div>
           </div>
-        ) : (
-          <p className="muted small" style={{ margin: 0 }}>Gå med i evenemanget nedan för att chatta.</p>
-        )}
+        ))}
       </div>
+      <Link className="btn sm block" to={`/diploma/${id}`}>🏆 Öppna vinnardiplomet</Link>
+    </div>
+  ) : null;
 
-      {/* Identity */}
-      {viewer ? (
-        <div className="card stack center">
-          <Pill>Åskådare</Pill>
-          <p className="muted">Du tittar på {event.name} som <b>{viewerNameSaved}</b> — allt uppdateras live, men du tävlar inte.</p>
-          <button type="button" className="btn block ghost" onClick={stopViewing} disabled={busy}>Gå med som spelare istället</button>
-        </div>
-      ) : !eventName ? (
-        <>
-          {user ? (
-            <div className="card stack">
-              <h2 style={{ margin: 0 }}>Spela som dig själv</h2>
-              <p className="muted" style={{ margin: 0 }}>
-                Du är inloggad som <b>{user.displayName || user.username}</b>. Gå med med ditt konto så sparas dina poäng.
-              </p>
-              <button type="button" className="btn block" onClick={claimAsMe} disabled={busy}>Spela som mig</button>
-              <p className="muted small" style={{ margin: 0 }}>…eller välj ett namn nedan.</p>
-            </div>
-          ) : null}
-          {event.hasRoster ? (
-            <div className="card stack">
-              <h2>Vem är du?</h2>
-              <p className="muted">Tryck på ditt namn för att gå med.</p>
-              {(event.members || []).map((m) => (
-                <button key={m.id} type="button" className="btn block ghost" onClick={() => claim(m.id)} disabled={busy}>{m.name}</button>
-              ))}
-            </div>
-          ) : (
-            <div className="card stack">
-              <h2>Gå med i ”{event.name}”</h2>
-              <p className="muted">Välj ett namn — du använder det för alla aktiviteter.</p>
-              <input type="text" maxLength={60} placeholder="Ditt namn" value={joinName} onChange={(e) => setJoinName(e.target.value)} />
-              <button type="button" className="btn block" onClick={joinFreeName} disabled={busy || !joinName.trim()}>Gå med i evenemanget</button>
-            </div>
-          )}
-          <div className="card stack">
-            <h3>Bara titta?</h3>
-            <p className="muted">Följ allt live utan att tävla.</p>
-            <input type="text" maxLength={60} placeholder="Ditt namn" value={viewerName} onChange={(e) => setViewerName(e.target.value)} />
-            <button type="button" className="btn ghost block" onClick={watch} disabled={busy || !viewerName.trim()}>Titta som åskådare</button>
-          </div>
-        </>
+  const standingsBlock = (
+    <div className="card">
+      <h2>{event.isComplete ? 'Slutställning' : 'Totalställning'}</h2>
+      <p className="muted small" style={{ marginTop: '-.4rem' }}>
+        Poängen från alla spel räknas ihop här —{' '}
+        {event.scoring === EventScoring.Placement
+          ? 'placeringspoäng, varje avslutad aktivitet ger poäng efter placering.'
+          : 'kumulativa poäng, varje lags faktiska poäng räknas ihop.'}
+      </p>
+      {!standings || (standings.entries || []).length === 0 ? (
+        <p className="muted center">Inga poäng ännu — de räknas ihop över alla aktiviteter.</p>
       ) : (
-        <div className="card center muted">Du spelar som <b>{eventName}</b>.</div>
+        <table className="board">
+          <tbody>
+            {standings.entries.map((e) => (
+              <tr key={e.userId ?? e.displayName} className={isMe(e.displayName) ? 'me' : undefined}>
+                <td className="rank">{e.rank}</td>
+                <td>
+                  <b>{e.displayName}{isMe(e.displayName) ? <span className="muted"> · Du</span> : null}</b>
+                  <div className="muted small">{e.activitiesPlayed} av {activities.length} aktiviteter</div>
+                </td>
+                {event.slapMode !== SlapMode.Off ? (
+                  <td className="small" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <div style={{ color: 'var(--danger)' }}>{e.slapLost > 0 ? `−${num(e.slapLost)}` : '—'}</div>
+                    <div style={{ color: 'var(--ok)' }}>{e.slapReceived > 0 ? `+${num(e.slapReceived)}` : '—'}</div>
+                  </td>
+                ) : null}
+                <td className="pts">{num(e.totalPoints)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+
+  const chatBlock = (
+    <div className="card stack">
+      <div className="row">
+        <h2 className="grow">Chatt</h2>
+        {hasWebPush && isPushSupported() ? (
+          <button type="button" className="btn ghost sm" onClick={enableAlerts}>🔔 Aviseringar</button>
+        ) : null}
+      </div>
+      <p className="muted small" style={{ marginTop: '-.4rem' }}>Prata med alla i evenemanget.</p>
+      <div style={{ maxHeight: '16rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '.45rem' }}>
+        {chat.length === 0 ? (
+          <p className="muted center" style={{ margin: 0 }}>Inga meddelanden än — säg hej! 👋</p>
+        ) : (
+          chat.map((m) => (
+            <div key={m.id} style={{ fontSize: '.9rem' }}>
+              <b>{m.author}</b>{' '}
+              <span className="muted small">{new Date(m.createdUtc).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}</span>
+              <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{m.text}</div>
+            </div>
+          ))
+        )}
+      </div>
+      {canChat ? (
+        <div className="row">
+          <input
+            className="grow"
+            placeholder="Meddela alla…"
+            maxLength={1000}
+            value={chatText}
+            onChange={(e) => setChatText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') sendChat(); }}
+          />
+          <button type="button" className="btn sm" onClick={sendChat} disabled={!chatText.trim()}>Skicka</button>
+        </div>
+      ) : (
+        <p className="muted small" style={{ margin: 0 }}>Gå med i evenemanget för att chatta.</p>
+      )}
+    </div>
+  );
+
+  const viewersBlock = (event.viewers || []).length > 0 ? (
+    <div className="card">
+      <h3>Tittar nu ({event.viewers.length})</h3>
+      <p className="muted">{event.viewers.join(', ')}</p>
+    </div>
+  ) : null;
+
+  const activitiesBlock = (
+    <div className="card">
+      <h2>Aktiviteter</h2>
+      <p className="muted small" style={{ marginTop: '-.4rem' }}>Spelen i evenemanget — i tur och ordning.</p>
+      {activities.length === 0 ? (
+        <p className="muted">Inga aktiviteter ännu{canManage ? ' — lägg till den första i värdkontrollerna.' : '.'}</p>
+      ) : (
+        <ul className="stack" style={{ listStyle: 'none', padding: 0, margin: 0, gap: 14 }}>
+          {activities.map((a) => {
+            const locked = a.hasLocation; // geofence is a nudge; treat located activities as "walk closer"
+            return (
+              <li key={a.id} className="stack" style={{ gap: '.55rem' }}>
+                <div>
+                  <b>{a.order}. {a.title}</b>
+                  <div className="muted small">{typeLabel(a.type)}</div>
+                </div>
+                {a.imageUrl ? <img src={a.imageUrl} alt="" className="media-img" style={{ borderRadius: 'var(--radius-sm)' }} /> : null}
+                <div className="row wrap">
+                  <StatusBadge status={a.status} />
+                  {a.status === ActivityStatus.Finished
+                    || (eventOpenForMe && (a.status === ActivityStatus.Live || a.status === ActivityStatus.Open)) ? (
+                      <Link className={`btn sm ${a.status === ActivityStatus.Live ? '' : 'ghost'}`} to={`/a/${a.id}`}>{actionLabel(a.status)}</Link>
+                    ) : null}
+                </div>
+                {a.hasLocation ? (
+                  <div className="row wrap small" style={{ gap: 6 }}>
+                    <a className="btn ghost sm" href={`https://www.google.com/maps/dir/?api=1&destination=${a.latitude},${a.longitude}&travelmode=walking`} target="_blank" rel="noopener noreferrer">🗺️ Karta</a>
+                    {locked && coords ? (
+                      <span className="muted">Gå närmare · {Math.round(distanceMeters(coords.lat, coords.lng, a.latitude, a.longitude))} m</span>
+                    ) : null}
+                  </div>
+                ) : null}
+                {slapByActivity[a.id] ? (
+                  <SlapCeremony eventId={id} activityId={a.id} onResolved={async () => { await reload(); }} />
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+
+  const arrivalOverlay = arrivedId && activities.find((x) => x.id === arrivedId) ? (
+    <ArrivalOverlay
+      activity={activities.find((x) => x.id === arrivedId)}
+      onGo={() => { const a = activities.find((x) => x.id === arrivedId); setArrivedId(null); navigate(`/a/${a.id}`); }}
+      onDismiss={() => setArrivedId(null)}
+    />
+  ) : null;
+
+  // Player identity surfaces — split out of one flat block so each role only
+  // sees what's relevant (no competing "how do you want to join" cards).
+  const joinedStatusBlock = eventName ? (
+    <div className="card center muted">Du spelar som <b>{eventName}</b>.</div>
+  ) : null;
+
+  const viewerStatusBlock = (
+    <div className="card stack center">
+      <Pill>Åskådare</Pill>
+      <p className="muted">Du tittar på {event.name} som <b>{viewerNameSaved}</b> — allt uppdateras live, men du tävlar inte.</p>
+      <button type="button" className="btn block ghost" onClick={stopViewing} disabled={busy}>Gå med som spelare istället</button>
+    </div>
+  );
+
+  // The full join card for a player who hasn't joined yet: ONE primary path,
+  // with the free-name alternative + "bara titta" demoted to small options.
+  const playerJoinBlock = (
+    <>
+      {user && !event.hasRoster ? (
+        <div className="card stack">
+          <h2 style={{ margin: 0 }}>Spela som dig själv</h2>
+          <p className="muted" style={{ margin: 0 }}>
+            Du är inloggad som <b>{user.displayName || user.username}</b> — dina poäng sparas.
+          </p>
+          <button type="button" className="btn block" onClick={claimAsMe} disabled={busy}>Spela som mig</button>
+          <details>
+            <summary style={{ cursor: 'pointer' }} className="muted small">…eller gå med med ett annat namn</summary>
+            <div className="stack" style={{ marginTop: '.6rem' }}>
+              <input type="text" maxLength={60} placeholder="Ditt namn" value={joinName} onChange={(e) => setJoinName(e.target.value)} />
+              <button type="button" className="btn block ghost" onClick={joinFreeName} disabled={busy || !joinName.trim()}>Gå med i evenemanget</button>
+            </div>
+          </details>
+        </div>
+      ) : event.hasRoster ? (
+        <div className="card stack">
+          <h2>Vem är du?</h2>
+          <p className="muted">Tryck på ditt namn för att gå med.</p>
+          {user ? (
+            <button type="button" className="btn block" onClick={claimAsMe} disabled={busy}>Spela som mig ({user.displayName || user.username})</button>
+          ) : null}
+          {(event.members || []).map((m) => (
+            <button key={m.id} type="button" className="btn block ghost" onClick={() => claim(m.id)} disabled={busy}>{m.name}</button>
+          ))}
+        </div>
+      ) : (
+        <div className="card stack">
+          <h2>Gå med i ”{event.name}”</h2>
+          <p className="muted">Välj ett namn — du använder det för alla aktiviteter.</p>
+          <input type="text" maxLength={60} placeholder="Ditt namn" value={joinName} onChange={(e) => setJoinName(e.target.value)} />
+          <button type="button" className="btn block" onClick={joinFreeName} disabled={busy || !joinName.trim()}>Gå med i evenemanget</button>
+        </div>
       )}
 
-      {(event.viewers || []).length > 0 ? (
-        <div className="card">
-          <h3>Tittar nu ({event.viewers.length})</h3>
-          <p className="muted">{event.viewers.join(', ')}</p>
+      {/* "Bara titta?" — small secondary option, not a co-equal card. */}
+      <details className="card">
+        <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Bara titta?</summary>
+        <div className="stack" style={{ marginTop: '.6rem' }}>
+          <p className="muted" style={{ margin: 0 }}>Följ allt live utan att tävla.</p>
+          <input type="text" maxLength={60} placeholder="Ditt namn" value={viewerName} onChange={(e) => setViewerName(e.target.value)} />
+          <button type="button" className="btn ghost block" onClick={watch} disabled={busy || !viewerName.trim()}>Titta som åskådare</button>
         </div>
-      ) : null}
+      </details>
+    </>
+  );
 
-      {/* Activities running order (player view) */}
-      <div className="card">
-        <h2>Aktiviteter</h2>
-        {activities.length === 0 ? (
-          <p className="muted">Inga aktiviteter ännu{canManage ? ' — lägg till den första nedan.' : '.'}</p>
-        ) : (
-          <ul className="stack" style={{ listStyle: 'none', padding: 0, margin: 0, gap: 14 }}>
-            {activities.map((a) => {
-              const locked = a.hasLocation; // geofence is a nudge; treat located activities as "walk closer"
-              return (
-                <li key={a.id} className="stack" style={{ gap: '.55rem' }}>
-                  <div>
-                    <b>{a.order}. {a.title}</b>
-                    <div className="muted small">{typeLabel(a.type)}</div>
-                  </div>
-                  {a.imageUrl ? <img src={a.imageUrl} alt="" className="media-img" style={{ borderRadius: 'var(--radius-sm)' }} /> : null}
-                  <div className="row wrap">
-                    <StatusBadge status={a.status} />
-                    {a.status === ActivityStatus.Finished
-                      || (eventOpenForMe && (a.status === ActivityStatus.Live || a.status === ActivityStatus.Open)) ? (
-                        <Link className={`btn sm ${a.status === ActivityStatus.Live ? '' : 'ghost'}`} to={`/a/${a.id}`}>{actionLabel(a.status)}</Link>
-                      ) : null}
-                  </div>
-                  {a.hasLocation ? (
-                    <div className="row wrap small" style={{ gap: 6 }}>
-                      <a className="btn ghost sm" href={`https://www.google.com/maps/dir/?api=1&destination=${a.latitude},${a.longitude}&travelmode=walking`} target="_blank" rel="noopener noreferrer">🗺️ Karta</a>
-                      {locked && coords ? (
-                        <span className="muted">Gå närmare · {Math.round(distanceMeters(coords.lat, coords.lng, a.latitude, a.longitude))} m</span>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  {slapByActivity[a.id] ? (
-                    <SlapCeremony eventId={id} activityId={a.id} onResolved={async () => { await reload(); }} />
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
+  // The "play" group, shared by every role (it's where standings + games +
+  // chat live during play).
+  const playGroup = (
+    <>
+      {standingsBlock}
+      {activitiesBlock}
+      {chatBlock}
+    </>
+  );
 
-      {/* Arrival overlay */}
-      {arrivedId && activities.find((x) => x.id === arrivedId) ? (
-        <ArrivalOverlay
-          activity={activities.find((x) => x.id === arrivedId)}
-          onGo={() => { const a = activities.find((x) => x.id === arrivedId); setArrivedId(null); navigate(`/a/${a.id}`); }}
-          onDismiss={() => setArrivedId(null)}
+  // ── Role-aware composition ────────────────────────────────────────────────────
+  // HOST (canManage, not proxying): invite + manage first, play below.
+  if (canManage && !proxyHere) {
+    return (
+      <>
+        {toast}
+        {headerBlock}
+        {finalResultsBlock}
+
+        {/* Host intro */}
+        <div className="card stack">
+          <div className="spread">
+            <h2 style={{ margin: 0 }}>Värdläge</h2>
+            <span className="pill accent">Bara du ser det här</span>
+          </div>
+          <p className="muted" style={{ margin: 0 }}>
+            Den här panelen är bara för dig som värd — bjud in spelare och styr spelen här. Spelarna ser sin
+            egen vy: gå med, resultattavlan, aktiviteterna och chatten.
+          </p>
+          <button type="button" className="btn ghost sm" style={{ alignSelf: 'flex-start' }} onClick={() => togglePreview(true)}>
+            👁 Förhandsgranska som spelare
+          </button>
+        </div>
+
+        {/* Prominent, always-open invite */}
+        <InviteFriends
+          eventId={id}
+          shareUrl={shareUrl}
+          joinCode={event.joinCode}
+          onToast={show}
+          onReload={reload}
+          onShare={() => setShareOpen(true)}
+          onCopy={(text, msg) => copyText(text, show, msg)}
+          anyBusy={busy}
         />
-      ) : null}
 
-      {/* Host controls */}
-      {canManage && !proxyHere ? (
+        {/* Run order + add activity + start/dry-run + players + details + reset */}
         <HostControls
           event={event}
           activities={activities}
@@ -718,7 +809,53 @@ export default function Event() {
           onReload={reload}
           onToast={show}
         />
-      ) : null}
+
+        {/* Optional: the host can also play. Small, secondary, no big join cards. */}
+        {!eventName && !viewer ? (
+          <div className="card stack">
+            <h3 style={{ margin: 0 }}>Vill du också spela med?</h3>
+            <p className="muted small" style={{ margin: 0 }}>Som värd kan du delta i tävlingen — dina poäng sparas.</p>
+            <button type="button" className="btn block ghost" onClick={claimAsMe} disabled={busy}>Spela som mig</button>
+          </div>
+        ) : eventName ? joinedStatusBlock : viewer ? viewerStatusBlock : null}
+
+        {viewersBlock}
+        {playGroup}
+        {arrivalOverlay}
+        <QrShareModal open={shareOpen} url={shareUrl} title={`Gå med i ${event.name} — kod ${event.joinCode}`} onClose={() => setShareOpen(false)} />
+      </>
+    );
+  }
+
+  // ALREADY JOINED or VIEWER: small status line, then play.
+  if (eventName || viewer) {
+    return (
+      <>
+        {toast}
+        {previewBanner}
+        {headerBlock}
+        {finalResultsBlock}
+        {viewer ? viewerStatusBlock : joinedStatusBlock}
+        {viewersBlock}
+        {playGroup}
+        {arrivalOverlay}
+        <QrShareModal open={shareOpen} url={shareUrl} title={`Gå med i ${event.name} — kod ${event.joinCode}`} onClose={() => setShareOpen(false)} />
+      </>
+    );
+  }
+
+  // PLAYER ARRIVING (not host, not joined, not viewer): one clear join card, then play.
+  return (
+    <>
+      {toast}
+      {previewBanner}
+      {headerBlock}
+      {finalResultsBlock}
+      {playerJoinBlock}
+      {viewersBlock}
+      {playGroup}
+      {arrivalOverlay}
+      <QrShareModal open={shareOpen} url={shareUrl} title={`Gå med i ${event.name} — kod ${event.joinCode}`} onClose={() => setShareOpen(false)} />
     </>
   );
 }
@@ -936,9 +1073,6 @@ function HostControls({
         </div>
       </details>
 
-      {/* Invite friends */}
-      <InviteFriends eventId={id} onToast={onToast} onReload={onReload} anyBusy={anyBusy} />
-
       {/* Event details */}
       <details>
         <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Evenemangsdetaljer</summary>
@@ -1014,12 +1148,15 @@ function HostControls({
   );
 }
 
-// ── Invite friends (host) ─────────────────────────────────────────────────────
-// Two ways to invite: paste emails (comma/newline separated) and/or tick friends
-// from your friends list. Each invitee gets a roster identity + a magic link; the
-// links are always returned (copyable) so the host can share them when email is
-// off. Surfaces emailEnabled + a per-link QR.
-function InviteFriends({ eventId, onToast, onReload, anyBusy }) {
+// ── Invite players (host) ─────────────────────────────────────────────────────
+// The host's primary call to action: now an always-open, prominent card at the
+// top of the host view (was a collapsed <details> near the bottom). Two ways to
+// invite: paste emails (comma/newline separated) and/or tick friends from your
+// friends list. Each invitee gets a roster identity + a magic link; the links are
+// always returned (copyable) so the host can share them when email is off.
+// Surfaces emailEnabled + a per-link QR, plus a "share the code" affordance for
+// anonymous joiners. Logic (ensureFriends/send/parseEmails) is unchanged.
+function InviteFriends({ eventId, shareUrl, joinCode, onToast, onReload, onShare, onCopy, anyBusy }) {
   const [emails, setEmails] = useState('');
   const [friends, setFriends] = useState(null);
   const [friendsError, setFriendsError] = useState(null);
@@ -1029,13 +1166,16 @@ function InviteFriends({ eventId, onToast, onReload, anyBusy }) {
   const [emailEnabled, setEmailEnabled] = useState(true);
   const [qrUrl, setQrUrl] = useState(null);
 
-  // Lazily load the host's friends when the section is first opened.
+  // Load the host's friends. The section is always open now, so load on mount
+  // (the same lazy-once guard as before — calls the unchanged loader).
   const ensureFriends = () => {
     if (friends != null) return;
     getFriends()
       .then((list) => { setFriends(list); setFriendsError(null); })
       .catch((e) => { setFriends([]); setFriendsError(e?.message || 'Kunde inte ladda vänner.'); });
   };
+
+  useEffect(() => { ensureFriends(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggle = (idVal, on) =>
     setSelected((s) => { const n = new Set(s); if (on) n.add(idVal); else n.delete(idVal); return n; });
@@ -1072,13 +1212,27 @@ function InviteFriends({ eventId, onToast, onReload, anyBusy }) {
   const disabled = anyBusy || busy;
 
   return (
-    <details onToggle={(e) => { if (e.currentTarget.open) ensureFriends(); }}>
-      <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Bjud in vänner</summary>
-      <div className="stack" style={{ marginTop: '.6rem' }}>
-        <p className="muted small" style={{ margin: 0 }}>
-          Bjud in via e-post eller välj bland dina vänner. Varje person får en länk som loggar in dem och tar dem hit.
-        </p>
+    <div className="card stack">
+      <h2 style={{ margin: 0 }}>Bjud in spelare</h2>
+      <p className="muted" style={{ margin: 0 }}>
+        Bjud in via e-post eller välj bland dina vänner — var och en får en länk som loggar in dem och tar dem hit.
+        Eller dela bara koden/länken nedan så går de med utan konto.
+      </p>
 
+      {/* Share the code (anonymous joiners) */}
+      <div className="card stack" style={{ background: 'var(--surface-2)', gap: 8 }}>
+        <div className="row wrap" style={{ alignItems: 'center', gap: 8 }}>
+          <span className="muted small">Evenemangskod</span>
+          <b style={{ fontSize: '1.2rem', letterSpacing: '0.12em' }}>{joinCode}</b>
+          <span className="grow" />
+          <button type="button" className="btn ghost sm" onClick={() => onCopy?.(joinCode, 'Kod kopierad.')}>Kopiera kod</button>
+          <button type="button" className="btn ghost sm" onClick={() => onCopy?.(shareUrl, 'Länk kopierad.')}>Kopiera länk</button>
+          <button type="button" className="btn sm" onClick={() => onShare?.()}>Dela / QR</button>
+        </div>
+        <p className="muted small" style={{ margin: 0 }}>Den som har koden eller länken kan gå med utan konto.</p>
+      </div>
+
+      <div className="stack" style={{ marginTop: '.2rem' }}>
         {/* By email */}
         <div className="field" style={{ margin: 0 }}>
           <label htmlFor="invite-emails">E-postadresser</label>
@@ -1142,7 +1296,7 @@ function InviteFriends({ eventId, onToast, onReload, anyBusy }) {
         ) : null}
       </div>
       <QrShareModal open={!!qrUrl} url={qrUrl || ''} title="Inbjudningslänk" onClose={() => setQrUrl(null)} />
-    </details>
+    </div>
   );
 }
 
@@ -1215,6 +1369,28 @@ function persistJoin(eventId, res) {
   if (!res) return;
   for (const slot of res.slots || []) {
     if (slot.token) setParticipantToken(slot.activityId, slot.token);
+  }
+}
+
+// Copy text to the clipboard (with a non-secure-context fallback) and toast.
+// Pure UI helper for the "Kopiera kod"/share affordances — no app state.
+async function copyText(text, toastFn, okMsg = 'Kopierad!') {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    toastFn?.(okMsg);
+  } catch {
+    toastFn?.('Kunde inte kopiera — kopiera manuellt.');
   }
 }
 
