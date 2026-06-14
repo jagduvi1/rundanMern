@@ -8,7 +8,7 @@
 // list existing ones; and there is no event-wide "add from library" copy.
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listEvents, createEvent, deleteEvent } from '../api/events';
+import { listEvents, deleteEvent } from '../api/events';
 import { createActivity, listActivities } from '../api/activities';
 import { getLibraryAvailable, getLibraryTags } from '../api/library';
 import {
@@ -71,7 +71,6 @@ export default function Admin() {
   const [connections, setConnections] = useState([]);
   const [standalone, setStandalone] = useState([]);
 
-  const [newEventName, setNewEventName] = useState('');
   const [stTitle, setStTitle] = useState('');
   const [stType, setStType] = useState(ActivityType.Quiz);
   const [clientIdInput, setClientIdInput] = useState(spotifyClientId || '');
@@ -106,19 +105,6 @@ export default function Admin() {
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
-
-  const addEvent = async () => {
-    const name = newEventName.trim();
-    if (!name || busy) return;
-    setBusy(true);
-    try {
-      const ev = await createEvent({ name });
-      navigate(`/e/${ev.id}`);
-    } catch (err) {
-      show(err?.message || 'Kunde inte skapa evenemang.');
-      setBusy(false);
-    }
-  };
 
   const removeEvent = async (id) => {
     setConfirmDeleteId(null);
@@ -244,6 +230,8 @@ export default function Admin() {
           <button type="button" className="btn ghost sm" onClick={load} disabled={loading || busy}>Uppdatera</button>
         </div>
 
+        <button type="button" className="btn block lg success" onClick={() => navigate('/create')}>+ Skapa evenemang</button>
+
         {loading ? (
           <span className="spinner" style={{ margin: '1rem auto' }} />
         ) : events.length === 0 ? (
@@ -270,18 +258,6 @@ export default function Admin() {
             </div>
           ))
         )}
-
-        <div className="row" style={{ marginTop: 8 }}>
-          <input
-            className="grow"
-            value={newEventName}
-            onChange={(e) => setNewEventName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') addEvent(); }}
-            placeholder="Namn på nytt evenemang"
-            maxLength={80}
-          />
-          <button type="button" className="btn sm success" onClick={addEvent} disabled={busy || !newEventName.trim()}>Skapa</button>
-        </div>
       </div>
 
       {/* Standalone activity */}

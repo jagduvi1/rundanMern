@@ -8,6 +8,7 @@ import { getEventName } from '../utils/appState';
 import { EventScoring, SlapMode } from '../config/enums';
 import { num, richHtml, formatDistance, typeLabel, slapBlurb } from '../utils/format';
 import { useDocumentTitle } from '../utils/useDocumentTitle';
+import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../components/Toast';
 import StatusBadge from '../components/StatusBadge';
 import Pill from '../components/Pill';
@@ -77,6 +78,7 @@ function EventCard({ ev, joinedName, winner, onEnter }) {
 export default function Events() {
   useDocumentTitle('Evenemang · Rundan');
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { toast, show } = useToast();
   const [events, setEvents] = useState([]);
   const [names, setNames] = useState({});
@@ -127,6 +129,9 @@ export default function Events() {
         <img src="/assets/rundan-mark.svg" width={56} height={56} alt="" style={{ margin: '0 auto' }} />
         <h1>Evenemang</h1>
         <p className="muted">Varje dag på Rundan — välj ett för att hoppa in.</p>
+        {user ? (
+          <button type="button" className="btn lg success" onClick={() => navigate('/create')}>+ Skapa evenemang</button>
+        ) : null}
       </div>
 
       {loading ? (

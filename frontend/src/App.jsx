@@ -23,6 +23,7 @@ const Events = lazy(() => import('./pages/Events'));
 const Event = lazy(() => import('./pages/Event'));
 const Activity = lazy(() => import('./pages/Activity'));
 const Manage = lazy(() => import('./pages/Manage'));
+const CreateEvent = lazy(() => import('./pages/CreateEvent'));
 const Admin = lazy(() => import('./pages/Admin'));
 const Users = lazy(() => import('./pages/Users'));
 const Diploma = lazy(() => import('./pages/Diploma'));
@@ -75,6 +76,14 @@ function AppRoutes() {
           />
 
           {/* Host-only — requires a logged-in account (replaces rundan's admin code) */}
+          <Route
+            path="/create"
+            element={(
+              <ProtectedRoute>
+                <CreateEvent />
+              </ProtectedRoute>
+            )}
+          />
           <Route
             path="/admin"
             element={(
