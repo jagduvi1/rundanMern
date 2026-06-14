@@ -142,6 +142,7 @@ export default function AppMenu({ open, onClose }) {
           <Link to="/events" onClick={onClose} style={linkStyle}>Alla evenemang</Link>
           {user ? (
             <>
+              <Link to="/profile" onClick={onClose} style={linkStyle}>Min profil</Link>
               <Link to="/admin" onClick={onClose} style={linkStyle}>Värdinställningar</Link>
               <Link to="/admin/users" onClick={onClose} style={linkStyle}>Personer</Link>
               <button type="button" onClick={onLogout} style={{ ...linkStyle, background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', font: 'inherit' }}>

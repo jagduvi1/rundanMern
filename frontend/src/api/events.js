@@ -25,3 +25,7 @@ export const joinEvent = (code, displayName) =>
   apiPost(`/events/by-code/${code}/join`, { displayName });
 export const claimEvent = (code, userId) =>
   apiPost(`/events/by-code/${code}/claim`, { userId });
+// "Spela som mig": a logged-in account claims its OWN linked roster identity —
+// userId is omitted so the backend resolves it from the account.
+export const claimEventAsMe = (code) =>
+  apiPost(`/events/by-code/${code}/claim`, {});

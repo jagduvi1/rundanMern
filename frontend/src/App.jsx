@@ -29,6 +29,8 @@ const Diploma = lazy(() => import('./pages/Diploma'));
 const SpotifyCallback = lazy(() => import('./pages/SpotifyCallback'));
 const Login = lazy(() => import('./pages/Login'));
 const Register = lazy(() => import('./pages/Register'));
+const MagicLink = lazy(() => import('./pages/MagicLink'));
+const Profile = lazy(() => import('./pages/Profile'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 function AppRoutes() {
@@ -60,6 +62,17 @@ function AppRoutes() {
           <Route path="/spotify-callback" element={<SpotifyCallback />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/magic-link" element={<MagicLink />} />
+
+          {/* Any logged-in account (host or invited player) */}
+          <Route
+            path="/profile"
+            element={(
+              <ProtectedRoute>
+                <Profile />
+              </ProtectedRoute>
+            )}
+          />
 
           {/* Host-only — requires a logged-in account (replaces rundan's admin code) */}
           <Route

@@ -16,7 +16,10 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   getEvent, getStandings, getTeams, reshuffleTeams, setMembers, updateEvent,
   setEventCode, reorderActivities, setActivitiesStatus, arrive, joinEvent, claimEvent,
+  claimEventAsMe,
 } from '../api/events';
+import { inviteToEvent } from '../api/invites';
+import { getFriends } from '../api/me';
 import { createActivity, setActivityStatus, deleteActivity } from '../api/activities';
 import { simulate } from '../api/simulation';
 import {
@@ -42,11 +45,13 @@ import { vibrate } from '../utils/vibrate';
 import { subscribeToPush, isPushSupported } from '../utils/push';
 import { num, richHtml, typeLabel } from '../utils/format';
 import { useBootstrap } from '../contexts/BootstrapContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useDocumentTitle } from '../utils/useDocumentTitle';
 import { useToast } from '../components/Toast';
 import StatusBadge from '../components/StatusBadge';
 import Pill from '../components/Pill';
 import SlapCeremony from '../components/SlapCeremony';
+import QrShareModal from '../components/QrShareModal';
 
 const ARRIVAL_RADIUS = 25;
 const HOST_TYPES = [
@@ -77,6 +82,7 @@ export default function Event() {
   const navigate = useNavigate();
   const { toast, show } = useToast();
   const { hasWebPush } = useBootstrap();
+  const { user } = useAuth();
 
   const [event, setEvent] = useState(null);
   const [standings, setStandings] = useState(null);
@@ -322,6 +328,24 @@ export default function Event() {
       await reload();
     } catch (err) {
       show(err?.message || 'Kunde inte gå med.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // "Spela som mig" — a logged-in account claims its OWN linked roster identity
+  // (no userId; the backend resolves it). Falls through to the same persistence
+  // as a normal claim so this device re-presents the right identity afterwards.
+  const claimAsMe = async () => {
+    setBusy(true);
+    try {
+      const res = await claimEventAsMe(event.joinCode);
+      persistClaim(id, res);
+      setEventName(res.displayName);
+      await refreshStandings();
+      await reload();
+    } catch (err) {
+      show(err?.message || 'Kunde inte spela som dig — be värden lägga till dig i evenemanget.');
     } finally {
       setBusy(false);
     }
@@ -585,6 +609,16 @@ export default function Event() {
         </div>
       ) : !eventName ? (
         <>
+          {user ? (
+            <div className="card stack">
+              <h2 style={{ margin: 0 }}>Spela som dig själv</h2>
+              <p className="muted" style={{ margin: 0 }}>
+                Du är inloggad som <b>{user.displayName || user.username}</b>. Gå med med ditt konto så sparas dina poäng.
+              </p>
+              <button type="button" className="btn block" onClick={claimAsMe} disabled={busy}>Spela som mig</button>
+              <p className="muted small" style={{ margin: 0 }}>…eller välj ett namn nedan.</p>
+            </div>
+          ) : null}
           {event.hasRoster ? (
             <div className="card stack">
               <h2>Vem är du?</h2>
@@ -902,6 +936,9 @@ function HostControls({
         </div>
       </details>
 
+      {/* Invite friends */}
+      <InviteFriends eventId={id} onToast={onToast} onReload={onReload} anyBusy={anyBusy} />
+
       {/* Event details */}
       <details>
         <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Evenemangsdetaljer</summary>
@@ -973,6 +1010,170 @@ function HostControls({
           <button type="button" className="btn block success" onClick={saveDetails} disabled={anyBusy || !details.name.trim()}>Spara evenemangsdetaljer</button>
         </div>
       </details>
+    </div>
+  );
+}
+
+// ── Invite friends (host) ─────────────────────────────────────────────────────
+// Two ways to invite: paste emails (comma/newline separated) and/or tick friends
+// from your friends list. Each invitee gets a roster identity + a magic link; the
+// links are always returned (copyable) so the host can share them when email is
+// off. Surfaces emailEnabled + a per-link QR.
+function InviteFriends({ eventId, onToast, onReload, anyBusy }) {
+  const [emails, setEmails] = useState('');
+  const [friends, setFriends] = useState(null);
+  const [friendsError, setFriendsError] = useState(null);
+  const [selected, setSelected] = useState(new Set());
+  const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState(null);
+  const [emailEnabled, setEmailEnabled] = useState(true);
+  const [qrUrl, setQrUrl] = useState(null);
+
+  // Lazily load the host's friends when the section is first opened.
+  const ensureFriends = () => {
+    if (friends != null) return;
+    getFriends()
+      .then((list) => { setFriends(list); setFriendsError(null); })
+      .catch((e) => { setFriends([]); setFriendsError(e?.message || 'Kunde inte ladda vänner.'); });
+  };
+
+  const toggle = (idVal, on) =>
+    setSelected((s) => { const n = new Set(s); if (on) n.add(idVal); else n.delete(idVal); return n; });
+
+  const parseEmails = () =>
+    emails
+      .split(/[,\n;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((email) => ({ email }));
+
+  const send = async () => {
+    const invites = parseEmails();
+    const accountIds = [...selected];
+    if (invites.length === 0 && accountIds.length === 0) {
+      onToast?.('Lägg till minst en e-post eller välj en vän.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await inviteToEvent(eventId, { invites, accountIds });
+      setResults(res.invited || []);
+      setEmailEnabled(!!res.emailEnabled);
+      setEmails('');
+      setSelected(new Set());
+      await onReload?.();
+    } catch (err) {
+      onToast?.(err?.message || 'Kunde inte skicka inbjudningar.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disabled = anyBusy || busy;
+
+  return (
+    <details onToggle={(e) => { if (e.currentTarget.open) ensureFriends(); }}>
+      <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Bjud in vänner</summary>
+      <div className="stack" style={{ marginTop: '.6rem' }}>
+        <p className="muted small" style={{ margin: 0 }}>
+          Bjud in via e-post eller välj bland dina vänner. Varje person får en länk som loggar in dem och tar dem hit.
+        </p>
+
+        {/* By email */}
+        <div className="field" style={{ margin: 0 }}>
+          <label htmlFor="invite-emails">E-postadresser</label>
+          <textarea
+            id="invite-emails"
+            rows={3}
+            placeholder="anna@exempel.se, kalle@exempel.se"
+            value={emails}
+            onChange={(e) => setEmails(e.target.value)}
+          />
+          <p className="muted small" style={{ margin: '4px 0 0' }}>Separera med komma eller radbrytning.</p>
+        </div>
+
+        {/* From friends */}
+        <div className="stack" style={{ gap: 6 }}>
+          <b>Dina vänner</b>
+          {friendsError ? <p className="error-text" style={{ margin: 0 }}>{friendsError}</p> : null}
+          {friends == null ? (
+            <div className="center muted"><span className="spinner" style={{ margin: '.4rem auto' }} /></div>
+          ) : friends.length === 0 ? (
+            <p className="muted small" style={{ margin: 0 }}>
+              Inga vänner ännu. Lägg till några under <Link to="/profile">Min profil</Link>.
+            </p>
+          ) : (
+            friends.map((f) => (
+              <label key={f.id} className="row" style={{ fontWeight: 500 }}>
+                <input
+                  type="checkbox"
+                  style={{ width: 'auto', minHeight: 'auto' }}
+                  checked={selected.has(f.id)}
+                  onChange={(e) => toggle(f.id, e.target.checked)}
+                />
+                <span className="grow">{f.name}</span>
+              </label>
+            ))
+          )}
+        </div>
+
+        <button type="button" className="btn block success" onClick={send} disabled={disabled}>
+          {busy ? 'Skickar…' : 'Skicka inbjudningar'}
+        </button>
+
+        {/* Results */}
+        {results ? (
+          <div className="stack" style={{ gap: 8, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+            {!emailEnabled ? (
+              <p className="muted small" style={{ margin: 0 }}>
+                E-post är inte påslaget — kopiera länkarna nedan och skicka dem själv.
+              </p>
+            ) : (
+              <p className="muted small" style={{ margin: 0 }}>Inbjudningar skickade. Länkarna kan delas manuellt också.</p>
+            )}
+            {results.length === 0 ? (
+              <p className="muted small" style={{ margin: 0 }}>Inga inbjudningar att visa.</p>
+            ) : (
+              results.map((r, i) => (
+                <InviteResultRow key={r.email || r.accountId || i} result={r} onShowQr={setQrUrl} onToast={onToast} />
+              ))
+            )}
+          </div>
+        ) : null}
+      </div>
+      <QrShareModal open={!!qrUrl} url={qrUrl || ''} title="Inbjudningslänk" onClose={() => setQrUrl(null)} />
+    </details>
+  );
+}
+
+function InviteResultRow({ result, onShowQr, onToast }) {
+  const [copied, setCopied] = useState(false);
+  if (!result.ok) {
+    return (
+      <div className="row small" style={{ color: 'var(--danger)' }}>
+        <span className="grow">{result.email || result.accountId}</span>
+        <span>{result.error || 'Misslyckades'}</span>
+      </div>
+    );
+  }
+  const copy = async () => {
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(result.link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch { onToast?.('Kunde inte kopiera — kopiera länken manuellt.'); }
+  };
+  return (
+    <div className="stack" style={{ gap: 4, borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
+      <div className="row">
+        <span className="grow"><b>{result.name || result.email}</b></span>
+        {result.emailed ? <span className="pill ok small">Mejlad</span> : null}
+      </div>
+      <div className="row wrap" style={{ gap: 6 }}>
+        <span className="muted small" style={{ wordBreak: 'break-all', flex: 1, minWidth: 0 }}>{result.link}</span>
+        <button type="button" className="btn sm soft" onClick={copy}>{copied ? 'Kopierad!' : 'Kopiera'}</button>
+        <button type="button" className="btn sm ghost" onClick={() => onShowQr(result.link)}>QR</button>
+      </div>
     </div>
   );
 }

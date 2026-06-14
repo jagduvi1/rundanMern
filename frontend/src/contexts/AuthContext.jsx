@@ -111,7 +111,68 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // Magic-link login: consume a one-time token, store the access token + user just
+  // like login/register, and surface the eventId the link was for (when invited).
+  const consumeMagicLink = async (linkToken) => {
+    try {
+      const res = await fetch('/api/auth/magic-link/consume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ token: linkToken }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { success: false, error: data.error || 'Länken är ogiltig eller har gått ut.' };
+      storeToken(data.token);
+      setUser(data.user);
+      return { success: true, eventId: data.eventId || null };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  };
+
+  // Set (or change) the password on the current account — turns a passwordless
+  // invited account into a normal one. Requires the access token (auth route).
+  const setPassword = async (password, username) => {
+    try {
+      const res = await fetch('/api/auth/set-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : {}),
+        },
+        credentials: 'include',
+        body: JSON.stringify({ password, username }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { success: false, error: data.error || 'Kunde inte spara lösenordet.' };
+      if (data.user) setUser(data.user);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  };
+
+  // Request a passwordless login link by email. Always succeeds (anti-enumeration).
+  const requestMagicLink = async (email) => {
+    try {
+      const res = await fetch('/api/auth/magic-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { success: true, message: data.message };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  };
+
   const isAdmin = !!user?.roles?.includes('admin');
-  const value = { user, token, loading, isAdmin, register, login, logout };
+  const value = {
+    user, token, loading, isAdmin, register, login, logout,
+    consumeMagicLink, setPassword, requestMagicLink,
+  };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

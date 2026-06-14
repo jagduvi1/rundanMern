@@ -8,7 +8,7 @@ import Spinner from '../components/Spinner';
 
 export default function Login() {
   useDocumentTitle('Logga in · Rundan');
-  const { login } = useAuth();
+  const { login, requestMagicLink } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const dest = location.state?.from || '/admin';
@@ -17,6 +17,11 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+
+  // Passwordless: email a one-time login link (always acks, anti-enumeration).
+  const [linkEmail, setLinkEmail] = useState('');
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkSent, setLinkSent] = useState(false);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -27,6 +32,15 @@ export default function Login() {
     setBusy(false);
     if (res.success) navigate(dest, { replace: true });
     else setError(res.error || 'Inloggning misslyckades.');
+  };
+
+  const sendLink = async (e) => {
+    e.preventDefault();
+    if (linkBusy || !linkEmail.trim()) return;
+    setLinkBusy(true);
+    await requestMagicLink(linkEmail.trim());
+    setLinkBusy(false);
+    setLinkSent(true);
   };
 
   return (
@@ -64,6 +78,30 @@ export default function Login() {
       <p className="muted small center">
         Inget konto? <Link to="/register">Skapa ett</Link>
       </p>
+
+      <div className="stack" style={{ borderTop: '1px solid var(--border)', paddingTop: 14, gap: 8 }}>
+        <b>Inget lösenord?</b>
+        <p className="muted small" style={{ margin: 0 }}>Maila mig en inloggningslänk istället.</p>
+        {linkSent ? (
+          <p className="muted small" style={{ margin: 0 }}>
+            Om det finns ett konto med den adressen är en inloggningslänk på väg. Kolla din mejl.
+          </p>
+        ) : (
+          <form className="row" onSubmit={sendLink}>
+            <input
+              className="grow"
+              type="email"
+              autoComplete="email"
+              placeholder="din@epost.se"
+              value={linkEmail}
+              onChange={(e) => setLinkEmail(e.target.value)}
+            />
+            <button type="submit" className="btn sm ghost" disabled={linkBusy || !linkEmail.trim()}>
+              {linkBusy ? <Spinner /> : 'Maila länk'}
+            </button>
+          </form>
+        )}
+      </div>
     </div>
   );
 }
