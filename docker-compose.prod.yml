@@ -12,8 +12,11 @@
 #   • TRUST_PROXY=3 so the backend sees the real client IP behind CF→Traefik→nginx.
 #
 # Required env (in .env next to this file): JWT_SECRET, RUNDAN_HOST, FRONTEND_URL.
-# To use a SHARED MongoDB instead of the bundled one: set MONGO_URI to it and
-# delete the `mongo` service + its `depends_on`.
+#
+# MongoDB: rundan runs its OWN dedicated `rundan-mongo` container on a private
+# per-app network, with its own `mongo-data` volume — never shared with, exposed
+# to, or reachable by your other apps. Nothing is published to the host (no port
+# 27017), so it can't collide with other apps' databases.
 
 services:
   mongo:
@@ -42,7 +45,8 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=5000
-      - MONGO_URI=${MONGO_URI:-mongodb://mongo:27017/rundan}
+      # Always the app's OWN dedicated mongo container (not overridable/shared).
+      - MONGO_URI=mongodb://mongo:27017/rundan
       - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET}
       - ACCESS_TOKEN_EXPIRES_IN=${ACCESS_TOKEN_EXPIRES_IN:-15m}
       - FRONTEND_URL=${FRONTEND_URL:?set FRONTEND_URL to https://your-domain}
