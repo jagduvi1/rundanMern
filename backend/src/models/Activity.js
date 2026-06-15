@@ -74,6 +74,11 @@ const activitySchema = new mongoose.Schema({
   // Library reuse
   isPublic: { type: Boolean, default: false },
 
+  // Standalone-activity ownership (the account that created it). Event activities
+  // are governed by their event's owner/admins instead. Null for legacy/seeded
+  // activities, which fall back to the dev-open management rule.
+  owner: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', default: null, index: true },
+
   // Score game / rounds
   courtLabel: { type: String, default: 'Court' },
   scoreEntryMode: { type: Number, enum: values(ScoreEntryMode), default: ScoreEntryMode.Team },

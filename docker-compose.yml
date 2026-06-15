@@ -22,6 +22,7 @@ services:
       - MONGO_URI=mongodb://mongo:27017/rundan
       - JWT_SECRET=${JWT_SECRET}
       - ACCESS_TOKEN_EXPIRES_IN=${ACCESS_TOKEN_EXPIRES_IN:-15m}
+      - ADMIN_EMAILS=${ADMIN_EMAILS:-}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8080}
       - APP_NAME=${APP_NAME:-Rundan}
       - ACCESS_CODE=${ACCESS_CODE:-}
@@ -33,7 +34,7 @@ services:
       - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
       - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
       - VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:admin@example.com}
-      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - MAILERSEND_API_KEY=${MAILERSEND_API_KEY:-}
       - EMAIL_FROM=${EMAIL_FROM:-}
       - UPLOADS_DIR=/app/uploads
     volumes:

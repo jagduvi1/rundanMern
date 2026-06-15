@@ -10,6 +10,10 @@ export const updateEvent = (id, body) => apiPut(`/events/${id}`, body, { eventId
 export const deleteEvent = (id) => apiDelete(`/events/${id}`, { eventId: id });
 export const setMembers = (id, userIds, adminUserIds) =>
   apiPut(`/events/${id}/members`, { userIds, adminUserIds }, { eventId: id });
+export const addEventAdmin = (id, email) =>
+  apiPost(`/events/${id}/admins`, { email }, { eventId: id });
+export const removeEventAdmin = (id, accountId) =>
+  apiDelete(`/events/${id}/admins/${accountId}`, { eventId: id });
 export const setEventCode = (id, code) => apiPut(`/events/${id}/code`, { code }, { eventId: id });
 export const reorderActivities = (id, activityIds) =>
   apiPut(`/events/${id}/reorder`, { activityIds }, { eventId: id });

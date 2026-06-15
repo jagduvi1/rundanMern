@@ -16,7 +16,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   getEvent, getStandings, getTeams, reshuffleTeams, setMembers, updateEvent,
   setEventCode, reorderActivities, setActivitiesStatus, arrive, joinEvent, claimEvent,
-  claimEventAsMe,
+  claimEventAsMe, addEventAdmin, removeEventAdmin,
 } from '../api/events';
 import { inviteToEvent } from '../api/invites';
 import { getFriends } from '../api/me';
@@ -876,6 +876,11 @@ function HostControls({
   const [memberIds, setMemberIds] = useState(new Set((event.members || []).map((m) => m.id)));
   const [adminIds, setAdminIds] = useState(new Set(event.adminUserIds || []));
 
+  // Account co-admins (shared event ownership).
+  const { user } = useAuth();
+  const [adminEmail, setAdminEmail] = useState('');
+  const [adminErr, setAdminErr] = useState(null);
+
   // Event details
   const [details, setDetails] = useState({
     name: event.name,
@@ -927,6 +932,36 @@ function HostControls({
       onToast('Spelare sparade.');
     } catch (err) {
       onToast(err?.message || 'Kunde inte spara spelare.');
+    } finally {
+      setLocalBusy(false);
+    }
+  };
+
+  const addAdmin = async () => {
+    const email = adminEmail.trim();
+    if (!email) return;
+    setAdminErr(null);
+    setLocalBusy(true);
+    try {
+      await addEventAdmin(id, email);
+      setAdminEmail('');
+      await onReload();
+      onToast('Medvärd tillagd.');
+    } catch (err) {
+      setAdminErr(err?.message || 'Kunde inte lägga till medvärden.');
+    } finally {
+      setLocalBusy(false);
+    }
+  };
+  const removeAdmin = async (accountId) => {
+    setAdminErr(null);
+    setLocalBusy(true);
+    try {
+      await removeEventAdmin(id, accountId);
+      await onReload();
+      onToast('Medvärd borttagen.');
+    } catch (err) {
+      setAdminErr(err?.message || 'Kunde inte ta bort medvärden.');
     } finally {
       setLocalBusy(false);
     }
@@ -1070,6 +1105,50 @@ function HostControls({
               <button type="button" className="btn block success" onClick={saveMembers} disabled={anyBusy}>Spara spelare</button>
             </>
           )}
+        </div>
+      </details>
+
+      {/* Co-admins (shared event ownership by account) */}
+      <details>
+        <summary style={{ cursor: 'pointer', fontWeight: 700 }}>
+          Medvärdar (konton){(event.coAdmins || []).length > 0 ? ` (${event.coAdmins.length})` : ''}
+        </summary>
+        <div className="stack" style={{ marginTop: '.6rem' }}>
+          <p className="muted">
+            Bjud in andra registrerade konton att vara admin för det här evenemanget — då delas det och flera kan hantera spelen.
+            Personen måste ha skapat ett konto med den e-postadressen först. Alla admins kan lägga till fler medvärdar.
+          </p>
+          {event.owner ? (
+            <div className="row" style={{ borderBottom: '1px solid var(--border)', padding: '.35rem 0' }}>
+              <span className="grow">
+                {event.owner.displayName || event.owner.username}{' '}
+                <span className="muted small">{event.owner.email}</span>
+              </span>
+              <span className="muted small">ägare</span>
+            </div>
+          ) : null}
+          {(event.coAdmins || []).map((a) => (
+            <div key={a.id} className="row" style={{ borderBottom: '1px solid var(--border)', padding: '.35rem 0' }}>
+              <span className="grow">
+                {a.displayName || a.username}{' '}
+                <span className="muted small">{a.email}</span>
+                {user && a.email === user.email ? <span className="muted small"> · du</span> : null}
+              </span>
+              <button type="button" className="btn ghost sm" onClick={() => removeAdmin(a.id)} disabled={anyBusy}>Ta bort</button>
+            </div>
+          ))}
+          <div className="row" style={{ marginTop: '.4rem' }}>
+            <input
+              type="email"
+              className="grow"
+              placeholder="e-postadress till en medvärd"
+              value={adminEmail}
+              onChange={(e) => setAdminEmail(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addAdmin(); } }}
+            />
+            <button type="button" className="btn success" onClick={addAdmin} disabled={anyBusy || !adminEmail.trim()}>Lägg till</button>
+          </div>
+          {adminErr ? <p className="error small" style={{ margin: 0 }}>{adminErr}</p> : null}
         </div>
       </details>
 

@@ -16,6 +16,10 @@ const idStr = (d) => {
 // ── Roster user ───────────────────────────────────────────────────────────────
 const userDto = (u) => (u ? { id: idStr(u), name: u.name } : null);
 
+// ── Account summary (event owner / co-admins) — never leaks secrets ────────────
+const accountSummaryDto = (a) =>
+  (a ? { id: idStr(a), username: a.username, displayName: a.displayName || a.username, email: a.email } : null);
+
 // ── Activity-type derived booleans (mirror ActivityDto computed helpers) ───────
 function activityDerived(a) {
   const t = a.type;
@@ -224,6 +228,7 @@ const viewerDto = (v) => ({ token: v.token, name: v.name });
 module.exports = {
   idStr,
   userDto,
+  accountSummaryDto,
   activityDerived,
   courtDto,
   activityDto,

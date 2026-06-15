@@ -111,10 +111,21 @@ async function sendResetPasswordEmail(account) {
 
 const noopJitter = () => new Promise((resolve) => setTimeout(resolve, 80 + crypto.randomInt(120)));
 
+// Effective roles = the account's stored roles, plus 'admin' when the account's
+// email is listed in ADMIN_EMAILS (env). Resolved fresh every time so env is the
+// single source of truth for super-admin (no stale stored role).
+const effectiveRoles = (account) => {
+  const base = account.roles && account.roles.length > 0 ? account.roles : ['user'];
+  return env.isAdminEmail(account.email) && !base.includes('admin') ? [...base, 'admin'] : base;
+};
+
+// The user payload returned to clients, with effective roles so the host UI
+// reflects env-granted admin (AuthContext reads user.roles).
+const userResponse = (account) => ({ ...account.toJSON(), roles: effectiveRoles(account) });
+
 // ── Token issuance (access JWT + rotating refresh family in a cookie) ─────────
 const generateAccessToken = (account) => {
-  const roles = account.roles && account.roles.length > 0 ? account.roles : ['user'];
-  return jwt.sign({ id: account._id, roles }, env.jwtSecret, {
+  return jwt.sign({ id: account._id, roles: effectiveRoles(account) }, env.jwtSecret, {
     algorithm: 'HS256',
     expiresIn: env.accessTokenExpiresIn,
   });
@@ -171,19 +182,19 @@ router.post('/register', authLimiter, async (req, res) => {
     if (existing) {
       return res.status(400).json({ error: 'Registration failed. Please check your details and try again.' });
     }
-    // The very first account bootstraps the deployment as super-admin.
-    const isFirst = (await Account.estimatedDocumentCount()) === 0;
+    // Super-admin is granted by email via ADMIN_EMAILS (env), resolved at token
+    // issuance — so every account is stored as a plain 'user' here.
     const account = new Account({
       username,
       email,
       password,
       displayName: displayName || '',
-      roles: isFirst ? ['user', 'admin'] : ['user'],
+      roles: ['user'],
       ageConsent: true,
     });
     const accessToken = await issueTokens(account, res);
     sendVerifyEmail(account).catch((e) => console.error('Verify-email send failed (non-fatal):', e.message));
-    res.status(201).json({ token: accessToken, user: account.toJSON() });
+    res.status(201).json({ token: accessToken, user: userResponse(account) });
   } catch (error) {
     if (error.name === 'ValidationError') {
       return res.status(400).json({ error: Object.values(error.errors).map((e) => e.message).join(', ') });
@@ -208,7 +219,7 @@ router.post('/login', authLimiter, async (req, res) => {
     const isMatch = await bcrypt.compare(password, account && account.password ? account.password : DUMMY_HASH);
     if (!account || !isMatch) return res.status(401).json({ error: 'Invalid credentials' });
     const accessToken = await issueTokens(account, res);
-    res.json({ token: accessToken, user: account.toJSON() });
+    res.json({ token: accessToken, user: userResponse(account) });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Login failed' });
@@ -268,7 +279,7 @@ router.get('/me', requireAuth, async (req, res) => {
   try {
     const account = await Account.findById(req.user.id);
     if (!account) return res.status(404).json({ error: 'Account not found' });
-    res.json({ user: account.toJSON() });
+    res.json({ user: userResponse(account) });
   } catch (error) {
     res.status(500).json({ error: 'Failed to get account' });
   }
@@ -381,7 +392,7 @@ router.post('/magic-link/consume', authLimiter, async (req, res) => {
     const accessToken = await issueTokens(account, res);
     res.json({
       token: accessToken,
-      user: account.toJSON(),
+      user: userResponse(account),
       eventId: doc.eventId ? String(doc.eventId) : null,
     });
   } catch (err) {
@@ -408,7 +419,7 @@ router.post('/set-password', requireAuth, authLimiter, async (req, res) => {
     }
     account.password = password; // validated + hashed by the pre-save hook
     await account.save();
-    res.json({ message: 'Account secured — you can now log in with a password.', user: account.toJSON() });
+    res.json({ message: 'Account secured — you can now log in with a password.', user: userResponse(account) });
   } catch (error) {
     if (error.name === 'ValidationError') {
       return res.status(400).json({ error: Object.values(error.errors).map((e) => e.message).join(', ') });
