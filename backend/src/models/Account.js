@@ -55,6 +55,9 @@ const accountSchema = new mongoose.Schema({
   // Refresh-token rotation (family + hashed secret), identical to Glosan.
   refreshTokenHash: { type: String, default: null },
   refreshTokenFamily: { type: String, default: null, index: true, sparse: true },
+  // Stamped into every access token; bumping it instantly invalidates all
+  // outstanding access tokens (password reset, "sign out everywhere").
+  tokenVersion: { type: Number, default: 0 },
   emailVerified: { type: Boolean, default: false },
   emailVerifiedAt: { type: Date, default: null },
   ageConsent: { type: Boolean, default: false },
