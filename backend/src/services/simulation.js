@@ -29,7 +29,9 @@ async function ensureTeams(activity) {
     return; // team service not present yet — caller's participants stand as-is
   }
   const fn = mod.ensureTeams || mod.ensureTeamsAsync || mod.EnsureTeamsAsync;
-  if (typeof fn === 'function') await fn(activity);
+  // teams.ensureTeams(event, activity): event is optional (loaded from
+  // activity.eventId when null), activity is required and read as the 2nd arg.
+  if (typeof fn === 'function') await fn(null, activity);
 }
 
 // ── RNG helpers (the draw/sim need not be reproducible) ───────────────────────
