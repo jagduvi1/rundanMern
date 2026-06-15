@@ -621,6 +621,7 @@ export default function Event() {
       {canChat ? (
         <div className="row">
           <input
+            type="text"
             className="grow"
             placeholder="Meddela alla…"
             maxLength={1000}
@@ -1168,14 +1169,14 @@ function HostControls({
           <div className="field">
             <label>Evenemangskod</label>
             <div className="row">
-              <input className="grow" value={details.code} onChange={(e) => setDetails((d) => ({ ...d, code: e.target.value }))} maxLength={16} />
+              <input type="text" className="grow" value={details.code} onChange={(e) => setDetails((d) => ({ ...d, code: e.target.value }))} maxLength={16} />
               <button type="button" className="btn sm" onClick={saveCode} disabled={anyBusy}>Spara</button>
               <button type="button" className="btn ghost sm" onClick={regenerateCode} disabled={anyBusy}>Ny</button>
             </div>
           </div>
           <div className="field">
             <label htmlFor="ev-name">Namn</label>
-            <input id="ev-name" value={details.name} onChange={(e) => setDetails((d) => ({ ...d, name: e.target.value }))} maxLength={80} />
+            <input type="text" id="ev-name" value={details.name} onChange={(e) => setDetails((d) => ({ ...d, name: e.target.value }))} maxLength={80} />
           </div>
           <div className="row wrap">
             <div className="field grow">

@@ -67,6 +67,8 @@ const activitySchema = new mongoose.Schema({
   randomizeQuestions: { type: Boolean, default: false },
   musicChoices: { type: Boolean, default: false },
   speedScoring: { type: Boolean, default: false },
+  hitsterMode: { type: Boolean, default: false },
+  hitsterCardsToWin: { type: Number, default: 10 },
   // Loose ref (no cascade) — a deleted connection just falls back to free entry.
   spotifyConnectionId: { type: mongoose.Schema.Types.ObjectId, default: null },
   hideQuestionsFromHost: { type: Boolean, default: false },

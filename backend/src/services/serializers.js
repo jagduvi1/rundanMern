@@ -76,6 +76,8 @@ function activityDto(a, extra = {}) {
     randomizeQuestions: a.randomizeQuestions,
     musicChoices: a.musicChoices,
     speedScoring: a.speedScoring,
+    hitsterMode: !!a.hitsterMode,
+    hitsterCardsToWin: a.hitsterCardsToWin ?? 10,
     spotifyConnectionId: a.spotifyConnectionId ? idStr(a.spotifyConnectionId) : null,
     hideQuestionsFromHost: a.hideQuestionsFromHost,
     isPublic: a.isPublic,

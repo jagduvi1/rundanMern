@@ -23,4 +23,5 @@ module.exports = {
   AppSetting: require('./AppSetting'),
   QuestionTemplate: require('./QuestionTemplate'),
   QuestionTemplateUsage: require('./QuestionTemplateUsage'),
+  HitsterGame: require('./HitsterGame'),
 };

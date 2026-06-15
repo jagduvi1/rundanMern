@@ -324,7 +324,7 @@ export default function Manage() {
         <h2 style={{ margin: 0 }}>Detaljer</h2>
         <div className="field">
           <label htmlFor="m-title">Titel</label>
-          <input id="m-title" value={f.title} onChange={(e) => set('title')(e.target.value)} maxLength={200} />
+          <input type="text" id="m-title" value={f.title} onChange={(e) => set('title')(e.target.value)} maxLength={200} />
         </div>
 
         <div className="field">
@@ -342,7 +342,7 @@ export default function Manage() {
             </>
           ) : (
             <>
-              <input value={typeLabel(activity.type)} disabled />
+              <input type="text" value={typeLabel(activity.type)} disabled />
               <p className="muted small">Låst när aktiviteten öppnats — sätt tillbaka till Utkast för att ändra.</p>
             </>
           )}
@@ -376,8 +376,19 @@ export default function Manage() {
 
         {activity.type === ActivityType.MusicQuiz ? (
           <>
-            <CheckboxField checked={f.musicChoices} onChange={set('musicChoices')} label="Flerval — spelarna trycker på artisten" />
-            <CheckboxField checked={f.speedScoring} onChange={set('speedScoring')} label="Snabbhetspoäng — snabbare svar ger mer poäng" />
+            <CheckboxField checked={f.hitsterMode} onChange={set('hitsterMode')} label="Hitster-läge — lagen bygger tidslinjer" />
+            {f.hitsterMode ? (
+              <div className="field" style={{ marginLeft: 28 }}>
+                <label htmlFor="m-hitster-cards">Antal kort i tidslinjen för att vinna</label>
+                <input type="number" id="m-hitster-cards" min={3} max={30} value={f.hitsterCardsToWin} onChange={(e) => set('hitsterCardsToWin')(Number(e.target.value))} style={{ width: 120 }} />
+              </div>
+            ) : null}
+            {!f.hitsterMode ? (
+              <>
+                <CheckboxField checked={f.musicChoices} onChange={set('musicChoices')} label="Flerval — spelarna trycker på artisten" />
+                <CheckboxField checked={f.speedScoring} onChange={set('speedScoring')} label="Snabbhetspoäng — snabbare svar ger mer poäng" />
+              </>
+            ) : null}
             {spotifyClientId ? (
               <div className="field">
                 <label htmlFor="m-spotify">Autofyllningskälla</label>
@@ -475,11 +486,11 @@ export default function Manage() {
           <h2 style={{ margin: 0 }}>Banor</h2>
           <div className="field">
             <label htmlFor="m-court-label">Vad de kallas</label>
-            <input id="m-court-label" value={courtLabel} onChange={(e) => setCourtLabel(e.target.value)} maxLength={30} style={{ width: 180 }} />
+            <input type="text" id="m-court-label" value={courtLabel} onChange={(e) => setCourtLabel(e.target.value)} maxLength={30} style={{ width: 180 }} />
           </div>
           {courtNames.map((name, i) => (
             <div key={i} className="row">
-              <input className="grow" value={name} maxLength={60} onChange={(e) => setCourtNames((arr) => arr.map((x, j) => (j === i ? e.target.value : x)))} />
+              <input type="text" className="grow" value={name} maxLength={60} onChange={(e) => setCourtNames((arr) => arr.map((x, j) => (j === i ? e.target.value : x)))} />
               <button type="button" className="btn ghost sm danger" onClick={() => setCourtNames((arr) => arr.filter((_, j) => j !== i))}>✕</button>
             </div>
           ))}
@@ -717,6 +728,8 @@ function fieldsFrom(a) {
     randomizeQuestions: !!a.randomizeQuestions,
     musicChoices: !!a.musicChoices,
     speedScoring: !!a.speedScoring,
+    hitsterMode: !!a.hitsterMode,
+    hitsterCardsToWin: a.hitsterCardsToWin ?? 10,
     spotifyConnectionId: a.spotifyConnectionId ?? '0',
     hideQuestionsFromHost: !!a.hideQuestionsFromHost,
     isPublic: !!a.isPublic,
@@ -741,6 +754,8 @@ function buildBody(f) {
     randomizeQuestions: f.randomizeQuestions,
     musicChoices: f.musicChoices,
     speedScoring: f.speedScoring,
+    hitsterMode: f.hitsterMode,
+    hitsterCardsToWin: f.hitsterCardsToWin,
     spotifyConnectionId: f.spotifyConnectionId === '0' || f.spotifyConnectionId === 0 ? null : f.spotifyConnectionId,
     hideQuestionsFromHost: f.hideQuestionsFromHost,
     isPublic: f.isPublic,

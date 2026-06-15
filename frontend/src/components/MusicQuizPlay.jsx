@@ -307,11 +307,13 @@ export default function MusicQuizPlay({ activity, participant }) {
             ) : !mine ? (
               <div className="stack">
                 <input
+                  type="text"
                   placeholder="Låttitel"
                   value={song.get(String(q.id)) || ''}
                   onChange={(e) => setSong((prev) => new Map(prev).set(String(q.id), e.target.value))}
                 />
                 <input
+                  type="text"
                   placeholder="Artist"
                   value={artist.get(String(q.id)) || ''}
                   onChange={(e) => setArtist((prev) => new Map(prev).set(String(q.id), e.target.value))}

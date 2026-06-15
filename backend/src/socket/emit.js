@@ -31,4 +31,6 @@ module.exports = {
   timerStopped: (activityId, dto) => emitToActivity(activityId, ServerEvents.TimerStopped, dto),
   musicTrackStarted: (activityId, dto) =>
     emitToActivity(activityId, ServerEvents.MusicTrackStarted, dto),
+  hitsterStateChanged: (activityId, dto) =>
+    emitToActivity(activityId, ServerEvents.HitsterStateChanged, dto),
 };

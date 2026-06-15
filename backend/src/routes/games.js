@@ -202,6 +202,15 @@ router.post('/:id/memory/result', asyncHandler(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// GET /api/activities/:id/memory-cards — return the card labels for the editor.
+router.get('/:id/memory-cards', activityManager, asyncHandler(async (req, res) => {
+  const activity = req.targetActivity;
+  const cards = (activity.memoryCards || [])
+    .slice().sort((a, b) => a.order - b.order)
+    .map((c) => ({ id: idStr(c), order: c.order, text: c.text }));
+  res.json({ cards, words: cards.map((c) => c.text), count: cards.length });
+}));
+
 // PUT /api/activities/:id/memory-cards — host authors the card labels (each
 // becomes a matching pair). Editable while Draft. { words: string[] } → the
 // embedded activity.memoryCards array. Returns the saved labels.

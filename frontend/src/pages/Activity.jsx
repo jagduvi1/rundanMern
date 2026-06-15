@@ -39,6 +39,8 @@ import ResultsSummary from '../components/ResultsSummary';
 import SlapCeremony from '../components/SlapCeremony';
 import PhotoWall from '../components/PhotoWall';
 import MusicHostPanel from '../components/MusicHostPanel';
+import HitsterPlay from '../components/HitsterPlay';
+import HitsterHostPanel from '../components/HitsterHostPanel';
 
 const POLL_MS = 4000;
 const PSESSION_KEY = (id) => `rundan.psession.${id}`;
@@ -381,7 +383,9 @@ export default function Activity() {
       })}
 
       {canManage && activity.type === ActivityType.MusicQuiz && activity.status !== ActivityStatus.Draft ? (
-        <MusicHostPanel activity={activity} />
+        activity.hitsterMode
+          ? <HitsterHostPanel activity={activity} />
+          : <MusicHostPanel activity={activity} />
       ) : null}
 
       {activity.status !== ActivityStatus.Draft ? (
@@ -498,7 +502,9 @@ function renderCentral(ctx) {
       case ActivityType.Boule: return <BracketBoard activity={activity} canManage={canManage} refreshKey={scoreVersion} />;
       case ActivityType.WordGame: return <WordGamePlay activity={activity} participant={session} />;
       case ActivityType.MapPin: return <MapPinPlay activity={activity} participant={session} />;
-      case ActivityType.MusicQuiz: return <MusicQuizPlay activity={activity} participant={session} />;
+      case ActivityType.MusicQuiz: return activity.hitsterMode
+        ? <HitsterPlay activity={activity} participant={session} />
+        : <MusicQuizPlay activity={activity} participant={session} />;
       case ActivityType.Memory: return <MemoryPlay activity={activity} participant={session} />;
       default: return <BouleBoard activity={activity} participant={session} canManage={canManage} />;
     }

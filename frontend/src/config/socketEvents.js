@@ -10,6 +10,7 @@ export const ServerEvents = Object.freeze({
   TimerStarted: 'TimerStarted',
   TimerStopped: 'TimerStopped',
   MusicTrackStarted: 'MusicTrackStarted',
+  HitsterStateChanged: 'HitsterStateChanged',
 });
 
 export const ClientEvents = Object.freeze({
