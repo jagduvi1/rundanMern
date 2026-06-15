@@ -49,7 +49,20 @@ async function send({ to, subject, html, text }) {
   if (html) params.setHtml(html);
   if (text) params.setText(text);
 
-  return c.email.send(params);
+  try {
+    return await c.email.send(params);
+  } catch (err) {
+    // The MailerSend SDK throws a response-like object with no `.message`, so
+    // callers logged `undefined`. Surface the status + API body so the real
+    // reason shows up — e.g. a trial-mode account that may only send to the
+    // account owner's own address until it's approved.
+    const status = err?.statusCode ?? err?.response?.statusCode ?? '';
+    const rawBody = err?.body ?? err?.response?.body ?? err?.message;
+    const detail = rawBody && typeof rawBody === 'object'
+      ? JSON.stringify(rawBody)
+      : String(rawBody ?? 'unknown error');
+    throw new Error(`MailerSend send failed (${status}): ${detail}`);
+  }
 }
 
 function wrapTemplate({ title, intro, ctaUrl, ctaLabel, footer }) {
