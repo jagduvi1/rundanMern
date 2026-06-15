@@ -388,7 +388,10 @@ router.post('/magic-link/consume', authLimiter, async (req, res) => {
     if (!doc) return res.status(400).json({ error: 'The link is invalid or has expired.' });
     const account = await Account.findById(doc.account);
     if (!account) return res.status(400).json({ error: 'Account not found.' });
-    if (!account.emailVerified) { account.emailVerified = true; account.emailVerifiedAt = new Date(); }
+    // NB: do NOT mark the email verified here. An invite magic link is created
+    // from an address the host typed (and is shareable out-of-band), so clicking
+    // it doesn't prove the user controls that mailbox. Verification is granted
+    // only by the dedicated verify-email link sent to the address itself.
     const accessToken = await issueTokens(account, res);
     res.json({
       token: accessToken,
@@ -405,10 +408,18 @@ router.post('/magic-link/consume', authLimiter, async (req, res) => {
 // into a normal one by setting a password (+ optional username). requireAuth.
 router.post('/set-password', requireAuth, authLimiter, async (req, res) => {
   try {
-    const { password, username } = req.body || {};
+    const { password, username, currentPassword } = req.body || {};
     if (!password || typeof password !== 'string') return res.status(400).json({ error: 'Password required.' });
     const account = await Account.findById(req.user.id);
     if (!account) return res.status(404).json({ error: 'Account not found.' });
+    // Setting a password on a passwordless (just-invited) account is a one-time
+    // claim. But once an account HAS a password, changing it — or the username —
+    // requires proving knowledge of the current one, so a leaked/stolen access
+    // token (or an intercepted invite link to an already-claimed account) can't
+    // silently rebind the identity.
+    if (account.hasPassword() && !(currentPassword && (await account.comparePassword(currentPassword)))) {
+      return res.status(403).json({ error: 'Enter your current password to change it.' });
+    }
     if (username && typeof username === 'string') {
       const desired = username.toLowerCase().trim();
       if (desired && desired !== account.username) {
