@@ -52,8 +52,9 @@ import StatusBadge from '../components/StatusBadge';
 import Pill from '../components/Pill';
 import SlapCeremony from '../components/SlapCeremony';
 import QrShareModal from '../components/QrShareModal';
+import MapView from '../components/MapView';
 
-const ARRIVAL_RADIUS = 25;
+const ARRIVAL_RADIUS = 40;
 const HOST_TYPES = [
   ActivityType.Quiz, ActivityType.Tipspromenad, ActivityType.Boule, ActivityType.ScoreGame,
   ActivityType.WordGame, ActivityType.MapPin, ActivityType.MusicQuiz, ActivityType.Memory,
@@ -583,6 +584,14 @@ export default function Event() {
           </tbody>
         </table>
       )}
+      {event.slapMode !== SlapMode.Off && Object.keys(slapByActivity).length > 0 ? (
+        <div className="stack" style={{ marginTop: '.8rem' }}>
+          <h3 style={{ margin: 0 }}>Nyp att göra</h3>
+          {Object.entries(slapByActivity).map(([actId]) => (
+            <SlapCeremony key={actId} eventId={id} activityId={actId} onResolved={async () => { await reload(); }} />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 
@@ -637,6 +646,20 @@ export default function Event() {
     <div className="card">
       <h2>Aktiviteter</h2>
       <p className="muted small" style={{ marginTop: '-.4rem' }}>Spelen i evenemanget — i tur och ordning.</p>
+      {(() => {
+        const located = activities.filter((a) => a.hasLocation);
+        if (located.length === 0) return null;
+        const avgLat = located.reduce((s, a) => s + a.latitude, 0) / located.length;
+        const avgLng = located.reduce((s, a) => s + a.longitude, 0) / located.length;
+        const markers = located.map((a) => ({
+          lat: a.latitude,
+          lng: a.longitude,
+          label: `${a.order}. ${a.title}`,
+          color: a.status === ActivityStatus.Finished ? '#16a34a' : a.status === ActivityStatus.Live ? '#f59e0b' : '#2563eb',
+        }));
+        const pins = coords ? [{ lat: coords.lat, lng: coords.lng }] : [];
+        return <MapView center={[avgLat, avgLng]} markers={markers} pins={pins} fitToMarkers height="260px" />;
+      })()}
       {activities.length === 0 ? (
         <p className="muted">Inga aktiviteter ännu{canManage ? ' — lägg till den första i värdkontrollerna.' : '.'}</p>
       ) : (

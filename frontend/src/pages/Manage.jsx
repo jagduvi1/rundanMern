@@ -722,7 +722,7 @@ function fieldsFrom(a) {
     isPublic: !!a.isPublic,
     latitude: a.latitude ?? null,
     longitude: a.longitude ?? null,
-    radiusMeters: a.radiusMeters ?? 25,
+    radiusMeters: a.radiusMeters ?? 40,
   };
 }
 

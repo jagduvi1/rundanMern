@@ -18,11 +18,11 @@ const GOTHENBURG = [57.7089, 11.9746];
 const round6 = (n) => Math.round(n * 1e6) / 1e6;
 const clampRadius = (r) => Math.min(500, Math.max(5, r));
 
-export default function LocationPicker({ lat = null, lng = null, radius = 25, onChange }) {
+export default function LocationPicker({ lat = null, lng = null, radius = 40, onChange }) {
   const { coords, error: geoError, watching, start, stop } = useGeolocation();
 
   const hasPin = lat != null && lng != null;
-  const r = clampRadius(Number(radius) || 25);
+  const r = clampRadius(Number(radius) || 40);
 
   // When the one-shot-style geolocation yields a fix, place the pin there once.
   useEffect(() => {

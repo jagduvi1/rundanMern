@@ -19,7 +19,7 @@ const {
 const { RuleViolation, asyncHandler } = require('../middleware/error');
 const { activityManager } = require('../middleware/eventAuth');
 const { pushScoreboard } = require('../services/scoreboard');
-const lastFm = require('../services/lastfm');
+const musicBrainzSimilar = require('../services/musicBrainzSimilar');
 
 const router = express.Router();
 
@@ -103,15 +103,15 @@ router.get('/:id/questions', asyncHandler(async (req, res) => {
   // Kahoot-style music quiz: attach four artist options (never leaking the right one).
   if (activity.type === ActivityType.MusicQuiz && activity.musicChoices) {
     let similar = null;
-    if (lastFm.enabled()) {
-      // Last.fm "similar artists" per distinct correct artist (best-effort distractors).
+    if (musicBrainzSimilar.enabled()) {
+      // MusicBrainz "similar artists" per distinct correct artist (best-effort distractors).
       similar = new Map();
       // eslint-disable-next-line no-restricted-syntax
       for (const q of questions) {
         const correct = (q.acceptedArtist || '').trim();
         if (correct.length > 0 && !similar.has(correct.toLowerCase())) {
           // eslint-disable-next-line no-await-in-loop
-          similar.set(correct.toLowerCase(), await lastFm.similarArtists(correct));
+          similar.set(correct.toLowerCase(), await musicBrainzSimilar.similarArtists(correct));
         }
       }
     }

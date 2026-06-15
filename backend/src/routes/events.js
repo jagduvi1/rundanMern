@@ -249,7 +249,7 @@ router.get(
 
 // POST /api/events/:id/arrive — auto-start any OPEN activity whose own geofence,
 // or (for Tipspromenad) any of its question geofences, the player has walked into.
-// Distance = haversine; radius = the point's radiusMeters when > 0 else 25 m.
+// Distance = haversine; radius = the point's radiusMeters when > 0 else 40 m.
 router.post(
   '/:id/arrive',
   optionalAuth,
@@ -272,7 +272,7 @@ router.post(
       : [];
 
     const within = (la, ln, tLat, tLng, radius) =>
-      geo.withinRadius(la, ln, tLat, tLng, radius > 0 ? radius : 25);
+      geo.withinRadius(la, ln, tLat, tLng, radius > 0 ? radius : 40);
 
     const started = [];
     const startedDocs = [];
