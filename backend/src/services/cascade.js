@@ -6,6 +6,7 @@
 const {
   Event, Activity, Participant, Question, Answer, ScoreEntry, BracketMatch,
   ActivityPhoto, EventMember, EventViewer, Slap, ChatMessage, PushSubscription, User, Account,
+  HitsterGame,
 } = require('../models');
 
 async function deleteQuestionCascade(questionId) {
@@ -36,6 +37,7 @@ async function deleteActivityChildren(activityId) {
     BracketMatch.deleteMany({ activityId }),
     ActivityPhoto.deleteMany({ activityId }),
     Slap.deleteMany({ activityId }),
+    HitsterGame.deleteMany({ activityId }),
   ]);
 }
 
