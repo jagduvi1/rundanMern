@@ -125,10 +125,11 @@ const userResponse = (account) => ({ ...account.toJSON(), roles: effectiveRoles(
 
 // ── Token issuance (access JWT + rotating refresh family in a cookie) ─────────
 const generateAccessToken = (account) => {
-  return jwt.sign({ id: account._id, roles: effectiveRoles(account) }, env.jwtSecret, {
-    algorithm: 'HS256',
-    expiresIn: env.accessTokenExpiresIn,
-  });
+  return jwt.sign(
+    { id: account._id, roles: effectiveRoles(account), tv: account.tokenVersion || 0 },
+    env.jwtSecret,
+    { algorithm: 'HS256', expiresIn: env.accessTokenExpiresIn }
+  );
 };
 
 const FAMILY_LEN = 32;
@@ -275,6 +276,25 @@ router.post('/logout', refreshLimiter, async (req, res) => {
   }
 });
 
+// POST /api/auth/logout-all — sign out every device: bump tokenVersion (kills all
+// outstanding access tokens) and drop the refresh family (kills all refresh
+// tokens). Use after a suspected compromise.
+router.post('/logout-all', requireAuth, async (req, res) => {
+  try {
+    const account = await Account.findById(req.user.id);
+    if (account) {
+      account.tokenVersion = (account.tokenVersion || 0) + 1;
+      account.refreshTokenHash = null;
+      account.refreshTokenFamily = null;
+      await account.save();
+    }
+    res.clearCookie('refreshToken', refreshCookieOptions);
+    res.json({ message: 'Signed out on all devices.' });
+  } catch (error) {
+    res.status(500).json({ error: 'Could not sign out everywhere.' });
+  }
+});
+
 router.get('/me', requireAuth, async (req, res) => {
   try {
     const account = await Account.findById(req.user.id);
@@ -332,6 +352,7 @@ router.post('/reset-password', authLimiter, async (req, res) => {
     account.password = password;
     account.refreshTokenHash = null;
     account.refreshTokenFamily = null;
+    account.tokenVersion = (account.tokenVersion || 0) + 1; // revoke outstanding access tokens
     if (!account.emailVerified) {
       account.emailVerified = true;
       account.emailVerifiedAt = new Date();
