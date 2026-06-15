@@ -22,7 +22,7 @@ import QuizPlay, {
   OptionButton, OptionKey, optionColor, feedbackStyle, seededShuffle,
 } from './QuizPlay';
 
-const DEFAULT_RADIUS_M = 25;
+const DEFAULT_RADIUS_M = 40;
 const radiusOf = (q) => (q.radiusMeters > 0 ? q.radiusMeters : DEFAULT_RADIUS_M);
 const hasLocation = (q) => q.latitude != null && q.longitude != null;
 

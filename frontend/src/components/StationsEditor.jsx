@@ -37,7 +37,7 @@ export default function StationsEditor({ activity, onChanged }) {
 
   // Inline spot editor (one open at a time).
   const [spotEditId, setSpotEditId] = useState(null);
-  const [spot, setSpot] = useState({ lat: null, lng: null, radius: 25 });
+  const [spot, setSpot] = useState({ lat: null, lng: null, radius: 40 });
 
   const aliveRef = useRef(true);
   useEffect(() => {
@@ -101,7 +101,7 @@ export default function StationsEditor({ activity, onChanged }) {
       return;
     }
     setSpotEditId(q.id);
-    setSpot({ lat: q.latitude ?? null, lng: q.longitude ?? null, radius: q.radiusMeters ?? 25 });
+    setSpot({ lat: q.latitude ?? null, lng: q.longitude ?? null, radius: q.radiusMeters ?? 40 });
   }
 
   async function saveSpot(q) {
@@ -186,7 +186,7 @@ export default function StationsEditor({ activity, onChanged }) {
               <span className="grow">
                 <b>#{idx + 1}</b>
                 <span className="muted" style={{ fontSize: '.78rem' }}>
-                  {hasLocation(q) ? ` · placerad · ${q.radiusMeters ?? 25} m` : ' · ingen plats än'}
+                  {hasLocation(q) ? ` · placerad · ${q.radiusMeters ?? 40} m` : ' · ingen plats än'}
                 </span>
               </span>
 

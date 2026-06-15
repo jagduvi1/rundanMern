@@ -382,14 +382,14 @@ function distinctCi(items) {
  *
  * Distractor tiers (each excludes the correct answer, shuffled within the tier
  * with the seeded RNG, then concatenated in priority order, ci-distinct, take 3):
- *   1. Last.fm similar artists for `correct` (if provided)
+ *   1. MusicBrainz similar artists for `correct` (if provided)
  *   2. the quiz's OTHER artists
  *   3. the built-in pool (entries not already among the quiz artists)
  *
  * @param {string} correctArtist  the accepted artist for this question
  * @param {object} [opts]
  * @param {string|number} [opts.seed]  stable per-question seed (the question id)
- * @param {string[]} [opts.similar]  Last.fm similar artists for `correctArtist`
+ * @param {string[]} [opts.similar]  MusicBrainz similar artists for `correctArtist`
  * @param {string[]} [opts.quizArtists]  distinct accepted artists across the quiz
  * @returns {Array<{id:number,order:number,text:string}>}  empty if no correct artist
  */

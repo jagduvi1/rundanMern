@@ -54,6 +54,7 @@ export default function BouleBoard({ activity, participant, canManage = false })
 
   // Stopwatch state: this device's running start (ms) + remote scorekeepers'.
   const [swStart, setSwStart] = useState(null); // ms or null (local)
+  const [swAccum, setSwAccum] = useState(0); // seconds accumulated across paused segments
   const [remoteStart, setRemoteStart] = useState(null); // Date ms or null
   const [, setNowTick] = useState(0); // forces re-render while a clock runs
   const tickRef = useRef(null);
@@ -86,6 +87,7 @@ export default function BouleBoard({ activity, participant, canManage = false })
     setPending(0);
     setRound(1);
     setSwStart(null);
+    setSwAccum(0);
     loadHistory();
     return () => {
       aliveRef.current = false;
@@ -151,25 +153,39 @@ export default function BouleBoard({ activity, participant, canManage = false })
     }
   }, [swStart, remoteStart]);
 
-  // ── Stopwatch toggle (local) — relays start/stop over the socket ─────────────
-  function toggleStopwatch() {
-    if (swStart != null) {
-      const elapsed = Math.min(Math.max(0, (Date.now() - swStart) / 1000), 100000);
-      setPending(Math.round(elapsed));
-      setSwStart(null);
-      stopTimer(activity.id, key);
-    } else {
-      setSwStart(Date.now());
-      ensureTicking();
-      startTimer(activity.id, key);
-    }
+  // ── Stopwatch controls (local) — relays start/stop over the socket ───────────
+  function startStopwatch() {
+    setSwAccum(0);
+    setPending(0);
+    setSwStart(Date.now());
+    ensureTicking();
+    startTimer(activity.id, key);
+  }
+  function pauseStopwatch() {
+    const seg = Math.max(0, (Date.now() - swStart) / 1000);
+    setSwAccum((a) => a + seg);
+    setSwStart(null);
+    stopTimer(activity.id, key);
+  }
+  function resumeStopwatch() {
+    setSwStart(Date.now());
+    ensureTicking();
+    startTimer(activity.id, key);
+  }
+  function stopStopwatch() {
+    const seg = swStart != null ? Math.max(0, (Date.now() - swStart) / 1000) : 0;
+    const total = Math.min(Math.round(swAccum + seg), 100000);
+    setPending(total);
+    setSwStart(null);
+    setSwAccum(0);
+    stopTimer(activity.id, key);
   }
 
   // ── Record / delete ──────────────────────────────────────────────────────────
   async function record() {
     if (!canScore || !participant) return;
     const value = pending;
-    if (value <= 0) return;
+    if (value < 0) return;
     setBusy(true);
     setError(null);
     try {
@@ -180,6 +196,7 @@ export default function BouleBoard({ activity, participant, canManage = false })
       });
       setPending(0);
       setSwStart(null);
+      setSwAccum(0);
       await loadHistory();
     } catch (e) {
       setError(e?.message || 'Kunde inte registrera poängen.');
@@ -222,7 +239,7 @@ export default function BouleBoard({ activity, participant, canManage = false })
       : activity.scoringMode === ScoringMode.ClosestToTarget ? 'Närmast målvärdet vinner.'
         : 'Högst vinner.';
 
-  const localElapsed = swStart != null ? (Date.now() - swStart) / 1000 : 0;
+  const localElapsed = swAccum + (swStart != null ? (Date.now() - swStart) / 1000 : 0);
   const remoteElapsed = remoteStart != null ? (Date.now() - remoteStart) / 1000 : 0;
   const courts = activity.courts || [];
 
@@ -273,11 +290,23 @@ export default function BouleBoard({ activity, participant, canManage = false })
               </div>
             ) : measuresTime ? (
               <>
-                <button className="btn ghost sm" onClick={toggleStopwatch} disabled={remoteStart != null && swStart == null}>
-                  {swStart != null ? 'Stoppa' : 'Starta'}
-                </button>
+                {swStart != null ? (
+                  <>
+                    <button className="btn ghost sm" onClick={pauseStopwatch}>Pausa</button>
+                    <button className="btn ghost sm" onClick={stopStopwatch}>Stoppa</button>
+                  </>
+                ) : swAccum > 0 ? (
+                  <>
+                    <button className="btn ghost sm" onClick={resumeStopwatch}>Fortsätt</button>
+                    <button className="btn ghost sm" onClick={stopStopwatch}>Stoppa</button>
+                  </>
+                ) : (
+                  <button className="btn ghost sm" onClick={startStopwatch} disabled={remoteStart != null}>Starta</button>
+                )}
                 {swStart != null ? (
                   <span style={clockText}>{clock(localElapsed)}</span>
+                ) : swAccum > 0 ? (
+                  <span style={{ ...clockText, color: '#f59e0b' }} title="Pausad">{clock(swAccum)}</span>
                 ) : remoteStart != null ? (
                   <span style={{ ...clockText, color: '#16a34a' }} title="Någon tar tid just nu">⏱ {clock(remoteElapsed)}</span>
                 ) : (
@@ -302,7 +331,7 @@ export default function BouleBoard({ activity, participant, canManage = false })
             <button
               className="btn sm success"
               onClick={record}
-              disabled={busy || pending <= 0 || (measuresTime && (swStart != null || remoteStart != null))}
+              disabled={busy || pending < 0 || (measuresTime && (swStart != null || swAccum > 0 || remoteStart != null))}
             >
               {isPoints ? 'Lägg till' : 'Spara'}
             </button>
@@ -315,30 +344,77 @@ export default function BouleBoard({ activity, participant, canManage = false })
         <h2 style={{ margin: 0 }}>Historik</h2>
         {history.length === 0 ? (
           <p className="muted" style={{ margin: 0 }}>Inga poäng registrerade än.</p>
-        ) : (
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-            {[...history].sort((a, b) => (a.id < b.id ? 1 : -1)).map((s) => (
-              <li key={s.id} className="row" style={{ borderBottom: '1px solid var(--border)', padding: '.4rem 0' }}>
-                <span style={roundBadge}>R{s.round}</span>
-                <span className="grow">{s.userName || s.participantName || '—'}</span>
-                <b style={{ fontVariantNumeric: 'tabular-nums' }}>
-                  {isPoints ? `${s.points >= 0 ? '+' : ''}${num(s.points)}` : fmtValue(s.points)}
-                </b>
-                {canManage ? (
-                  <button
-                    type="button"
-                    onClick={() => setPendingDelete(s.id)}
-                    disabled={busy}
-                    title="Ta bort"
-                    style={deleteBtn}
-                  >
-                    ✕
-                  </button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
+        ) : (() => {
+          // Group scores by participant, then by round.
+          const participants = [];
+          const participantMap = new Map();
+          for (const s of history) {
+            const key = s.participantName || s.userName || '—';
+            if (!participantMap.has(key)) {
+              const entry = { name: key, rounds: {}, total: 0, entries: [] };
+              participantMap.set(key, entry);
+              participants.push(entry);
+            }
+            const p = participantMap.get(key);
+            // Sum multiple entries per round (points-style games add per round).
+            p.rounds[s.round] = (p.rounds[s.round] || 0) + s.points;
+            p.total += s.points;
+            p.entries.push(s);
+          }
+          const roundNums = [...new Set(history.map((s) => s.round))].sort((a, b) => a - b);
+          const multiRound = roundNums.length > 1 || maxRound > 1;
+
+          return multiRound ? (
+            <div style={{ overflowX: 'auto' }}>
+              <table className="board" style={{ fontSize: '.85rem' }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left' }}>Spelare</th>
+                    {roundNums.map((r) => <th key={r} style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>R{r}</th>)}
+                    <th style={{ textAlign: 'right' }}>Totalt</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {participants.map((p) => (
+                    <tr key={p.name}>
+                      <td><b>{p.name}</b></td>
+                      {roundNums.map((r) => (
+                        <td key={r} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                          {p.rounds[r] != null ? (isPoints ? `${p.rounds[r] >= 0 ? '+' : ''}${num(p.rounds[r])}` : fmtValue(p.rounds[r])) : '—'}
+                        </td>
+                      ))}
+                      <td style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                        {isPoints ? num(p.total) : fmtValue(p.total)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+              {[...history].sort((a, b) => (a.id < b.id ? 1 : -1)).map((s) => (
+                <li key={s.id} className="row" style={{ borderBottom: '1px solid var(--border)', padding: '.4rem 0' }}>
+                  <span className="grow">{s.userName || s.participantName || '—'}</span>
+                  <b style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {isPoints ? `${s.points >= 0 ? '+' : ''}${num(s.points)}` : fmtValue(s.points)}
+                  </b>
+                  {canManage ? (
+                    <button
+                      type="button"
+                      onClick={() => setPendingDelete(s.id)}
+                      disabled={busy}
+                      title="Ta bort"
+                      style={deleteBtn}
+                    >
+                      ✕
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          );
+        })()}
       </div>
 
       <ConfirmDialog
@@ -370,10 +446,6 @@ const stepValue = {
 const clockText = {
   fontVariantNumeric: 'tabular-nums', fontSize: '1.15rem', fontWeight: 600,
   minWidth: 64, textAlign: 'right',
-};
-const roundBadge = {
-  fontSize: '.7rem', fontWeight: 700, padding: '2px 6px', borderRadius: 6,
-  background: 'var(--accent-soft)', color: 'var(--accent-dark)',
 };
 const deleteBtn = {
   border: 'none', background: 'none', cursor: 'pointer',
