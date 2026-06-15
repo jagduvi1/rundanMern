@@ -9,7 +9,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function AdminNav({ active = '' }) {
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
 
   async function onLogout() {
@@ -22,6 +22,9 @@ export default function AdminNav({ active = '' }) {
       <div className="row wrap">
         <Link className={`btn sm ${active === 'events' ? '' : 'ghost'}`} to="/admin">Evenemang</Link>
         <Link className={`btn sm ${active === 'people' ? '' : 'ghost'}`} to="/admin/users">Personer</Link>
+        {isAdmin ? (
+          <Link className={`btn sm ${active === 'accounts' ? '' : 'ghost'}`} to="/admin/accounts">Konton</Link>
+        ) : null}
         <Link className="btn sm ghost" to="/events">Spelvyn</Link>
         <span className="grow" />
         {user ? <span className="muted small" style={{ alignSelf: 'center' }}>{user.displayName || user.username}</span> : null}

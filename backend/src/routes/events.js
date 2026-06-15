@@ -215,16 +215,15 @@ async function listEventDtos(filter = {}) {
   return result;
 }
 
-// Events the account *manages* — owns or co-admins ({} = a super-admin sees all).
+// Events the account *manages* — owns or co-admins. (The super-admin role is for
+// user/role administration, not event oversight, so it gets no blanket access.)
 function managedEventFilter(req) {
-  if (req.user?.roles?.includes('admin')) return {};
   return { $or: [{ owner: req.user.id }, { admins: req.user.id }] };
 }
 
 // Events the account is *connected to* — manages, or is a roster member of (e.g.
 // invited/added). Returns a Mongo filter, or null for "nothing" (anonymous).
 async function connectedEventFilter(req) {
-  if (req.user?.roles?.includes('admin')) return {}; // super-admin sees all
   const uid = req.user?.id;
   if (!uid) return null; // anonymous → no events (reach one via its code/link)
   const ors = [{ owner: uid }, { admins: uid }];

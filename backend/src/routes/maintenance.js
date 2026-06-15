@@ -159,4 +159,53 @@ router.get(
   })
 );
 
+// ── Account / role administration (super-admin) ───────────────────────────────
+
+// GET /api/admin/accounts — list every account with its effective admin status.
+router.get(
+  '/accounts',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const accounts = await models.Account.find()
+      .select('username email displayName roles emailVerified createdAt')
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json(accounts.map((a) => ({
+      id: String(a._id),
+      username: a.username,
+      email: a.email,
+      displayName: a.displayName || a.username,
+      // Effective admin = stored role OR env (ADMIN_EMAILS) — matches token issuance.
+      isAdmin: (a.roles || []).includes('admin') || env.isAdminEmail(a.email),
+      // Env-admins are fixed in ADMIN_EMAILS and can't be toggled in-app.
+      isEnvAdmin: env.isAdminEmail(a.email),
+      emailVerified: !!a.emailVerified,
+      createdAt: a.createdAt,
+    })));
+  })
+);
+
+// PUT /api/admin/accounts/:id/role — grant/revoke the stored 'admin' role. Body
+// { admin: boolean }. Bumps the account's tokenVersion so the change takes effect
+// at once. Env-admins (ADMIN_EMAILS) are managed in env, not here.
+router.put(
+  '/accounts/:id/role',
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const makeAdmin = !!(req.body && req.body.admin);
+    const account = await models.Account.findById(req.params.id);
+    if (!account) throw new RuleViolation('Account not found.', 404);
+    if (env.isAdminEmail(account.email)) {
+      throw new RuleViolation('This account is a super-admin via ADMIN_EMAILS — change it there.', 409);
+    }
+    const roles = new Set(account.roles && account.roles.length ? account.roles : ['user']);
+    if (makeAdmin) roles.add('admin'); else roles.delete('admin');
+    roles.add('user');
+    account.roles = [...roles];
+    account.tokenVersion = (account.tokenVersion || 0) + 1; // apply immediately
+    await account.save();
+    res.json({ id: String(account._id), isAdmin: account.roles.includes('admin') });
+  })
+);
+
 module.exports = router;

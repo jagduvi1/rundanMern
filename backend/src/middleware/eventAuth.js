@@ -24,11 +24,13 @@ async function matchesEventAdminToken(req, eventId) {
 }
 
 async function canManageEvent(req, event) {
-  if (req.user?.roles?.includes('admin')) return true; // (1)
-  if (!event) return !!req.user || !env.isProd; // (2) creating: logged-in, or open in dev
+  // Event management is owner / co-admin only. The 'admin' (super-admin) role is
+  // for user & role administration — NOT event oversight — so it gets no special
+  // event powers here.
+  if (!event) return !!req.user || !env.isProd; // creating: logged-in, or open in dev
 
   const uid = req.user?.id ? String(req.user.id) : null;
-  if (uid && event.owner && String(event.owner) === uid) return true; // (3)
+  if (uid && event.owner && String(event.owner) === uid) return true;
   if (uid && (event.admins || []).some((a) => String(a) === uid)) return true;
   if (await matchesEventAdminToken(req, event._id)) return true; // (4)
 
@@ -41,10 +43,9 @@ async function canManageEvent(req, event) {
 }
 
 // Account-only management check (no member token) — for granting/revoking
-// durable account co-admins: super-admin, the event owner, or an existing
-// account co-admin. A delegated x-rundan-member token is deliberately NOT enough.
+// durable account co-admins: the event owner or an existing account co-admin.
+// A delegated x-rundan-member token is deliberately NOT enough.
 function canManageEventAsAccount(req, event) {
-  if (req.user?.roles?.includes('admin')) return true;
   if (!event) return false;
   const uid = req.user?.id ? String(req.user.id) : null;
   if (!uid) return false;
@@ -53,13 +54,11 @@ function canManageEventAsAccount(req, event) {
 }
 
 // Activity-scoped: resolve to its event and delegate. Standalone activities
-// (no eventId) are governed by their own `owner` (the account that created them):
-// super-admin or that owner may manage; activities with no recorded owner
-// (legacy/seeded) fall back to the dev-open rule.
+// (no eventId) are governed by their own `owner` (the account that created them);
+// activities with no recorded owner (legacy/seeded) fall back to the dev-open rule.
 async function canManageActivity(req, activity) {
   if (!activity) return false;
   if (!activity.eventId) {
-    if (req.user?.roles?.includes('admin')) return true;
     const uid = req.user?.id ? String(req.user.id) : null;
     if (activity.owner) return !!uid && String(activity.owner) === uid;
     return !!req.user || !env.isProd; // legacy/seeded: no owner recorded
