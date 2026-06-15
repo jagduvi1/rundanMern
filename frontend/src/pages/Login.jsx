@@ -75,6 +75,9 @@ export default function Login() {
           {busy ? <Spinner /> : 'Logga in'}
         </button>
       </form>
+      <p className="muted small center" style={{ margin: 0 }}>
+        <Link to="/forgot-password">Glömt lösenord?</Link>
+      </p>
       <p className="muted small center">
         Inget konto? <Link to="/register">Skapa ett</Link>
       </p>

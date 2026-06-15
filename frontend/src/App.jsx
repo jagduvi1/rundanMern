@@ -33,6 +33,7 @@ const Register = lazy(() => import('./pages/Register'));
 const MagicLink = lazy(() => import('./pages/MagicLink'));
 const VerifyEmail = lazy(() => import('./pages/VerifyEmail'));
 const ResetPassword = lazy(() => import('./pages/ResetPassword'));
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
 const Profile = lazy(() => import('./pages/Profile'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
@@ -68,6 +69,7 @@ function AppRoutes() {
           <Route path="/magic-link" element={<MagicLink />} />
           <Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
 
           {/* Any logged-in account (host or invited player) */}
           <Route
