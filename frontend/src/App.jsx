@@ -26,6 +26,7 @@ const Manage = lazy(() => import('./pages/Manage'));
 const CreateEvent = lazy(() => import('./pages/CreateEvent'));
 const Admin = lazy(() => import('./pages/Admin'));
 const Users = lazy(() => import('./pages/Users'));
+const Accounts = lazy(() => import('./pages/Accounts'));
 const Diploma = lazy(() => import('./pages/Diploma'));
 const SpotifyCallback = lazy(() => import('./pages/SpotifyCallback'));
 const Login = lazy(() => import('./pages/Login'));
@@ -113,6 +114,14 @@ function AppRoutes() {
             element={(
               <ProtectedRoute>
                 <Users />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/accounts"
+            element={(
+              <ProtectedRoute>
+                <Accounts />
               </ProtectedRoute>
             )}
           />
