@@ -121,7 +121,6 @@ async function loadEventDto(event) {
     canManage: false,
     viewers,
     isArchived: event.isArchived ?? false,
-    coAdminIds: (event.admins || []).map((a) => String(a)),
     // Computed read-only props the client also reads.
     hasRoster: members.length > 0,
     isComplete:
@@ -389,28 +388,6 @@ router.put(
     await event.save();
 
     if (teamModeChanged) await teams.resetUnplayedTeams(event._id);
-
-    const dto = await loadEventDto(event);
-    dto.canManage = true;
-    res.json(dto);
-  })
-);
-
-// PUT /api/events/:id/admins — set co-admin account ids on the event. Only the
-// owner (or a global admin) may promote/demote co-admins. The admins array stores
-// Account ObjectIds that the eventAuth middleware already checks.
-router.put(
-  '/:id/admins',
-  requireAuth,
-  eventManager,
-  asyncHandler(async (req, res) => {
-    const event = req.targetEvent;
-    const ids = Array.isArray(req.body?.adminIds) ? req.body.adminIds : [];
-    // Verify each id is a real account (exclude the owner — they always have access).
-    const ownerId = event.owner ? String(event.owner) : null;
-    const real = await User.find({ _id: { $in: ids } }).select('_id').lean();
-    event.admins = real.map((u) => u._id).filter((id) => String(id) !== ownerId);
-    await event.save();
 
     const dto = await loadEventDto(event);
     dto.canManage = true;
