@@ -64,9 +64,13 @@ async function acceptInvite(account, invite) {
     { $setOnInsert: { token: crypto.randomUUID(), isAdmin: false, addedUtc: new Date() } },
     { upsert: true }
   );
-  invite.acceptedAt = new Date();
-  invite.acceptedBy = account._id;
-  await invite.save();
+  // Atomically claim the invite (only if still unaccepted) — matches the
+  // consumeMagicLink/consumeEmailToken pattern. The membership upsert above is
+  // idempotent, so a concurrent accept is harmless.
+  await Invite.updateOne(
+    { _id: invite._id, acceptedAt: null },
+    { $set: { acceptedAt: new Date(), acceptedBy: account._id } }
+  );
   return invite.eventId;
 }
 
