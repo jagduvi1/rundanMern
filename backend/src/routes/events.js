@@ -197,10 +197,10 @@ function nextTeamSeed(current) {
   return seed;
 }
 
-// Newest-first list of every event as DTOs: by startsAt ?? createdUtc desc, then
-// _id desc (port of ListAllEventDtos; _id ≈ creation order).
-async function listAllEventDtos() {
-  const events = await Event.find().lean();
+// Newest-first list of matching events as DTOs: by startsAt ?? createdUtc desc,
+// then _id desc (port of ListAllEventDtos; _id ≈ creation order).
+async function listEventDtos(filter = {}) {
+  const events = await Event.find(filter).lean();
   events.sort((a, b) => {
     const ak = a.startsAt || (a.createdUtc ? new Date(a.createdUtc).toISOString() : '');
     const bk = b.startsAt || (b.createdUtc ? new Date(b.createdUtc).toISOString() : '');
@@ -213,6 +213,27 @@ async function listAllEventDtos() {
     result.push(await loadEventDto(ev));
   }
   return result;
+}
+
+// Events the account *manages* — owns or co-admins ({} = a super-admin sees all).
+function managedEventFilter(req) {
+  if (req.user?.roles?.includes('admin')) return {};
+  return { $or: [{ owner: req.user.id }, { admins: req.user.id }] };
+}
+
+// Events the account is *connected to* — manages, or is a roster member of (e.g.
+// invited/added). Returns a Mongo filter, or null for "nothing" (anonymous).
+async function connectedEventFilter(req) {
+  if (req.user?.roles?.includes('admin')) return {}; // super-admin sees all
+  const uid = req.user?.id;
+  if (!uid) return null; // anonymous → no events (reach one via its code/link)
+  const ors = [{ owner: uid }, { admins: uid }];
+  const acct = await Account.findById(uid).select('userId').lean();
+  if (acct?.userId) {
+    const memberEventIds = await EventMember.find({ userId: acct.userId }).distinct('eventId');
+    if (memberEventIds.length) ors.push({ _id: { $in: memberEventIds } });
+  }
+  return { $or: ors };
 }
 
 // ── Admin: create / list ──────────────────────────────────────────────────────
@@ -258,12 +279,13 @@ router.post(
   })
 );
 
-// GET /api/events — all events, newest first. Auth: logged-in host.
+// GET /api/events — the host dashboard: only events you own or co-admin (a
+// super-admin sees all). Auth: logged-in host.
 router.get(
   '/',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const dtos = await listAllEventDtos();
+    const dtos = await listEventDtos(managedEventFilter(req));
     for (const dto of dtos) {
       // eslint-disable-next-line no-await-in-loop
       dto.canManage = await canManageEvent(req, await Event.findById(dto.id));
@@ -273,20 +295,22 @@ router.get(
   })
 );
 
-// GET /api/events/active — player welcome page; excludes archived events.
-// canManage computed per row for anonymous/host callers alike.
+// GET /api/events/active — player welcome page: only events you're connected to
+// (manage or are a member of); logged-out callers get nothing and reach a
+// specific event via its code/link. Excludes archived.
 router.get(
   '/active',
   optionalAuth,
   asyncHandler(async (req, res) => {
-    const dtos = await listAllEventDtos();
-    const active = dtos.filter((d) => !d.isArchived);
-    for (const dto of active) {
+    const filter = await connectedEventFilter(req);
+    if (!filter) return res.json([]); // anonymous → no events
+    const dtos = (await listEventDtos(filter)).filter((d) => !d.isArchived);
+    for (const dto of dtos) {
       // eslint-disable-next-line no-await-in-loop
       dto.canManage = await canManageEvent(req, await Event.findById(dto.id));
       redactManagement(dto);
     }
-    res.json(active);
+    return res.json(dtos);
   })
 );
 
