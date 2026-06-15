@@ -5,7 +5,7 @@
 // delete) and loose bracket refs are handled explicitly.
 const {
   Event, Activity, Participant, Question, Answer, ScoreEntry, BracketMatch,
-  ActivityPhoto, EventMember, EventViewer, Slap, ChatMessage, PushSubscription, User,
+  ActivityPhoto, EventMember, EventViewer, Slap, ChatMessage, PushSubscription, User, Account,
 } = require('../models');
 
 async function deleteQuestionCascade(questionId) {
@@ -69,6 +69,9 @@ async function deleteUserCascade(userId) {
   await EventMember.deleteMany({ userId });
   await Participant.updateMany({ 'members.userId': userId }, { $pull: { members: { userId } } });
   await ScoreEntry.updateMany({ userId }, { $set: { userId: null } });
+  // Unlink any account that pointed at this roster identity (avoids a dangling
+  // account.userId that would break "play as me").
+  await Account.updateMany({ userId }, { $set: { userId: null } });
   await User.deleteOne({ _id: userId });
 }
 
