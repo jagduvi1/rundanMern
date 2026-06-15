@@ -36,6 +36,16 @@ const env = {
   jwtSecret: process.env.JWT_SECRET,
   accessTokenExpiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN || '15m',
 
+  // Super-admin accounts, by email — a ';'-separated list in ADMIN_EMAILS
+  // (e.g. "a@x.se;b@y.se"). Resolved at token issuance, so an account whose
+  // email is listed becomes super-admin on its next login with no DB edit. This
+  // replaces the old "first account to register becomes admin" rule and is the
+  // recovery path if every admin account is removed — just add an email here.
+  adminEmails: (process.env.ADMIN_EMAILS || '')
+    .split(';')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean),
+
   frontendUrl: str(process.env.FRONTEND_URL),
   appName: process.env.APP_NAME || 'Rundan',
 
@@ -58,8 +68,8 @@ const env = {
   vapidPrivateKey: str(process.env.VAPID_PRIVATE_KEY),
   vapidSubject: process.env.VAPID_SUBJECT || 'mailto:admin@example.com',
 
-  // Transactional email (optional host flows).
-  resendApiKey: str(process.env.RESEND_API_KEY),
+  // Transactional email (optional host flows), via MailerSend.
+  mailerSendApiKey: str(process.env.MAILERSEND_API_KEY),
   emailFrom: str(process.env.EMAIL_FROM),
 
   // Image upload storage.
@@ -68,12 +78,15 @@ const env = {
     (process.env.HOME ? `${process.env.HOME}/data/uploads` : null),
 
   // ── Computed capability flags (mirror RundanOptions) ───────────────────────
+  isAdminEmail(email) {
+    return !!email && this.adminEmails.includes(String(email).toLowerCase());
+  },
   get requiresAccessCode() { return !!this.accessCode; },
   get hasLastFm() { return !!this.lastFmApiKey; },
   get hasSpotify() { return !!this.spotifyClientId; },
   get hasSpotifyServer() { return !!(this.spotifyClientId && this.spotifyClientSecret); },
   get hasWebPush() { return !!(this.vapidPublicKey && this.vapidPrivateKey); },
-  get hasEmail() { return !!this.resendApiKey; },
+  get hasEmail() { return !!this.mailerSendApiKey; },
 };
 
 module.exports = env;
