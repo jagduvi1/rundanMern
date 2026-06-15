@@ -1,9 +1,9 @@
 const env = require('../config/env');
 
-// Transactional email (host verify / reset / magic-link), via Resend. Entirely
-// optional — when RESEND_API_KEY is unset, isEnabled() is false and the auth
-// routes simply skip sending (username+password still works). Mirrors Glosan's
-// email service interface.
+// Transactional email (host verify / reset / magic-link), via MailerSend.
+// Entirely optional — when MAILERSEND_API_KEY is unset, isEnabled() is false and
+// the auth routes simply skip sending (username+password still works). Mirrors
+// Glosan's email service interface.
 let client = null;
 
 function isEnabled() {
@@ -11,11 +11,11 @@ function isEnabled() {
 }
 
 function getClient() {
-  if (!client && env.resendApiKey) {
+  if (!client && env.mailerSendApiKey) {
     try {
       // eslint-disable-next-line global-require
-      const { Resend } = require('resend');
-      client = new Resend(env.resendApiKey);
+      const { MailerSend } = require('mailersend');
+      client = new MailerSend({ apiKey: env.mailerSendApiKey });
     } catch {
       client = null;
     }
@@ -23,17 +23,33 @@ function getClient() {
   return client;
 }
 
+// Parse an EMAIL_FROM value of the form "Name <addr@domain>" or "addr@domain"
+// into the { email, name } pair the MailerSend Sender expects.
+function parseFrom(raw) {
+  const value = (raw || 'Rundan <noreply@example.com>').trim();
+  const m = value.match(/^\s*(.*?)\s*<([^>]+)>\s*$/);
+  if (m) return { name: m[1] || env.appName, email: m[2].trim() };
+  return { name: env.appName, email: value };
+}
+
 async function send({ to, subject, html, text }) {
   if (!isEnabled()) throw new Error('Email service not configured');
   const c = getClient();
   if (!c) throw new Error('Email client unavailable');
-  return c.emails.send({
-    from: env.emailFrom || 'Rundan <noreply@example.com>',
-    to,
-    subject,
-    html,
-    text,
-  });
+
+  // eslint-disable-next-line global-require
+  const { EmailParams, Sender, Recipient } = require('mailersend');
+  const from = parseFrom(env.emailFrom);
+  const recipients = (Array.isArray(to) ? to : [to]).map((addr) => new Recipient(addr));
+
+  const params = new EmailParams()
+    .setFrom(new Sender(from.email, from.name))
+    .setTo(recipients)
+    .setSubject(subject);
+  if (html) params.setHtml(html);
+  if (text) params.setText(text);
+
+  return c.email.send(params);
 }
 
 function wrapTemplate({ title, intro, ctaUrl, ctaLabel, footer }) {
