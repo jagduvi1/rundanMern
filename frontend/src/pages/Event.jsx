@@ -21,7 +21,7 @@ import {
 import { inviteToEvent } from '../api/invites';
 import { getFriends } from '../api/me';
 import { createActivity, setActivityStatus, deleteActivity } from '../api/activities';
-import { simulate } from '../api/simulation';
+import { simulate, resetResults } from '../api/simulation';
 import {
   getChat, postChat, registerViewer, getActivitySlap,
 } from '../api/eventSocial';
@@ -453,6 +453,7 @@ export default function Event() {
     }
   }, 'Simulerade alla aktiviteter.');
   const removeActivity = (activityId) => hostAction(() => deleteActivity(activityId));
+  const resetActivity = (activityId) => hostAction(() => resetResults(activityId), 'Aktiviteten återställd.');
   const resetAll = (status) => hostAction(() => setActivitiesStatus(id, status), 'Återställde aktiviteter.');
 
   const move = (activityId, delta) => {
@@ -620,6 +621,7 @@ export default function Event() {
       {canChat ? (
         <div className="row">
           <input
+            type="text"
             className="grow"
             placeholder="Meddela alla…"
             maxLength={1000}
@@ -827,6 +829,7 @@ export default function Event() {
           onMove={move}
           onSimulate={simulateActivity}
           onRemove={removeActivity}
+          onReset={resetActivity}
           onSimulateAll={simulateAll}
           onResetAll={resetAll}
           onReload={reload}
@@ -885,7 +888,7 @@ export default function Event() {
 
 // ── Host controls block ───────────────────────────────────────────────────────
 function HostControls({
-  event, activities, busy, onSetStatus, onMove, onSimulate, onRemove,
+  event, activities, busy, onSetStatus, onMove, onSimulate, onRemove, onReset,
   onSimulateAll, onResetAll, onReload, onToast,
 }) {
   const id = event.id;
@@ -1012,6 +1015,7 @@ function HostControls({
     }
   };
 
+
   const saveCode = async () => {
     setLocalBusy(true);
     try { await setEventCode(id, details.code.trim()); await onReload(); onToast('Kod sparad.'); }
@@ -1029,6 +1033,22 @@ function HostControls({
     try { setFixedTeams(await reshuffleTeams(id)); onToast('Lagen blandades.'); }
     catch (err) { onToast(err?.message || 'Kunde inte blanda lagen.'); }
     finally { setLocalBusy(false); }
+  };
+
+  const toggleArchive = async () => {
+    setLocalBusy(true);
+    try {
+      await updateEvent(id, {
+        name: event.name,
+        isArchived: !event.isArchived,
+      });
+      await onReload();
+      onToast(event.isArchived ? 'Evenemanget återställt.' : 'Evenemanget arkiverat.');
+    } catch (err) {
+      onToast(err?.message || 'Kunde inte arkivera.');
+    } finally {
+      setLocalBusy(false);
+    }
   };
 
   const anyBusy = busy || localBusy;
@@ -1061,6 +1081,9 @@ function HostControls({
               <button type="button" className="btn sm ghost" title="Pausa men behåll i evenemanget" onClick={() => onSetStatus(a.id, ActivityStatus.Draft)} disabled={anyBusy}>Pausa</button>
             ) : null}
             <button type="button" className="btn sm soft" onClick={() => onSimulate(a.id)} disabled={anyBusy}>Simulera</button>
+            {a.status !== ActivityStatus.Draft ? (
+              <button type="button" className="btn sm ghost" onClick={() => onReset(a.id)} disabled={anyBusy}>Återställ</button>
+            ) : null}
           </div>
           <div className="row wrap">
             <StatusBadge status={a.status} />
@@ -1182,14 +1205,14 @@ function HostControls({
           <div className="field">
             <label>Evenemangskod</label>
             <div className="row">
-              <input className="grow" value={details.code} onChange={(e) => setDetails((d) => ({ ...d, code: e.target.value }))} maxLength={16} />
+              <input type="text" className="grow" value={details.code} onChange={(e) => setDetails((d) => ({ ...d, code: e.target.value }))} maxLength={16} />
               <button type="button" className="btn sm" onClick={saveCode} disabled={anyBusy}>Spara</button>
               <button type="button" className="btn ghost sm" onClick={regenerateCode} disabled={anyBusy}>Ny</button>
             </div>
           </div>
           <div className="field">
             <label htmlFor="ev-name">Namn</label>
-            <input id="ev-name" value={details.name} onChange={(e) => setDetails((d) => ({ ...d, name: e.target.value }))} maxLength={80} />
+            <input type="text" id="ev-name" value={details.name} onChange={(e) => setDetails((d) => ({ ...d, name: e.target.value }))} maxLength={80} />
           </div>
           <div className="row wrap">
             <div className="field grow">
@@ -1244,6 +1267,9 @@ function HostControls({
             </select>
           </div>
           <button type="button" className="btn block success" onClick={saveDetails} disabled={anyBusy || !details.name.trim()}>Spara evenemangsdetaljer</button>
+          <button type="button" className="btn block ghost" onClick={toggleArchive} disabled={anyBusy} style={{ marginTop: '.5rem' }}>
+            {event.isArchived ? 'Återställ från arkiv' : 'Arkivera evenemanget'}
+          </button>
         </div>
       </details>
     </div>

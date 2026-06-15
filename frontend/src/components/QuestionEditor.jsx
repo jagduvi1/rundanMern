@@ -414,6 +414,7 @@ export default function QuestionEditor({ activity, onChanged }) {
                   onChange={() => setField('correctIndex')(i)}
                 />
                 <input
+                  type="text"
                   className="grow"
                   placeholder={`Alternativ ${i + 1}`}
                   value={opt}
@@ -437,7 +438,7 @@ export default function QuestionEditor({ activity, onChanged }) {
         ) : (
           <div className="field">
             <label>Godtaget svar (skiftlägesokänsligt)</label>
-            <input value={form.acceptedAnswer} onChange={(e) => setField('acceptedAnswer')(e.target.value)} placeholder="Den rätta texten" />
+            <input type="text" value={form.acceptedAnswer} onChange={(e) => setField('acceptedAnswer')(e.target.value)} placeholder="Den rätta texten" />
           </div>
         )}
 

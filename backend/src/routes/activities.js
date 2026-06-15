@@ -303,6 +303,9 @@ router.put('/:id', activityManager, asyncHandler(async (req, res) => {
   activity.randomizeQuestions = !!r.randomizeQuestions;
   activity.musicChoices = !!r.musicChoices && activity.type === ActivityType.MusicQuiz;
   activity.speedScoring = !!r.speedScoring && activity.type === ActivityType.MusicQuiz;
+  activity.hitsterMode = !!r.hitsterMode && activity.type === ActivityType.MusicQuiz;
+  activity.hitsterCardsToWin = activity.hitsterMode
+    ? Math.max(3, Math.min(30, Number(r.hitsterCardsToWin) || 10)) : 10;
   activity.spotifyConnectionId = activity.type === ActivityType.MusicQuiz
     ? (r.spotifyConnectionId || null) : null;
   activity.hideQuestionsFromHost = !!r.hideQuestionsFromHost;

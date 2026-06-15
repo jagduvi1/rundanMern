@@ -3,7 +3,7 @@
 // (player-visible) event; tap a card to jump in. Host CRUD lives on /admin.
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listActiveEvents, getStandings } from '../api/events';
+import { listActiveEvents, listEvents, getStandings } from '../api/events';
 import { getEventName } from '../utils/appState';
 import { EventScoring, SlapMode } from '../config/enums';
 import { num, richHtml, formatDistance, typeLabel, slapBlurb } from '../utils/format';
@@ -22,7 +22,10 @@ function EventCard({ ev, joinedName, winner, onEnter }) {
   return (
     <div className="card stack">
       {ev.imageUrl ? <img src={ev.imageUrl} alt="" className="media-img" style={{ borderRadius: 'var(--radius-sm)' }} /> : null}
-      <h2 style={{ margin: 0 }}>{ev.name}</h2>
+      <div className="row" style={{ gap: 8 }}>
+        <h2 style={{ margin: 0 }} className="grow">{ev.name}</h2>
+        {ev.canManage ? <Pill kind="accent">Värd</Pill> : null}
+      </div>
 
       {ev.isComplete ? (
         <div className="row" style={{ gap: 8 }}>
@@ -81,6 +84,8 @@ export default function Events() {
   const { user } = useAuth();
   const { toast, show } = useToast();
   const [events, setEvents] = useState([]);
+  const [archived, setArchived] = useState([]);
+  const [showArchived, setShowArchived] = useState(false);
   const [names, setNames] = useState({});
   const [winners, setWinners] = useState({});
   const [loading, setLoading] = useState(true);
@@ -89,9 +94,15 @@ export default function Events() {
     let cancelled = false;
     (async () => {
       try {
-        const list = await listActiveEvents();
+        const [list, all] = await Promise.all([
+          listActiveEvents(),
+          user ? listEvents().catch(() => []) : Promise.resolve([]),
+        ]);
         if (cancelled) return;
         setEvents(list);
+        // Archived = events in the full list that are flagged isArchived.
+        const activeIds = new Set(list.map((e) => e.id));
+        setArchived(all.filter((e) => e.isArchived || !activeIds.has(e.id)));
 
         const nm = {};
         for (const ev of list) {
@@ -155,6 +166,23 @@ export default function Events() {
           />
         ))
       )}
+
+      {user && archived.length > 0 ? (
+        <div className="card stack">
+          <button type="button" className="btn ghost block" onClick={() => setShowArchived((s) => !s)}>
+            {showArchived ? '▾' : '▸'} Arkiverade ({archived.length})
+          </button>
+          {showArchived ? archived.map((ev) => (
+            <EventCard
+              key={ev.id}
+              ev={ev}
+              joinedName={names[ev.id]}
+              winner={winners[ev.id]}
+              onEnter={(id) => navigate(`/e/${id}`)}
+            />
+          )) : null}
+        </div>
+      ) : null}
     </>
   );
 }

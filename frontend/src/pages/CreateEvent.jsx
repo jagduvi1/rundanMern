@@ -136,6 +136,7 @@ export default function CreateEvent() {
           <div className="field" style={{ margin: 0 }}>
             <label htmlFor="ev-name">Vad heter dagen?</label>
             <input
+              type="text"
               id="ev-name"
               value={name}
               maxLength={80}

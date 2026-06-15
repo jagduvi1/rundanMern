@@ -285,6 +285,7 @@ export default function Admin() {
 
         <div className="row wrap">
           <input
+            type="text"
             className="grow"
             value={stTitle}
             onChange={(e) => setStTitle(e.target.value)}
@@ -306,7 +307,7 @@ export default function Admin() {
           <div className="field">
             <label htmlFor="spotify-client">Klient-ID</label>
             <div className="row">
-              <input id="spotify-client" className="grow" value={clientIdInput} onChange={(e) => setClientIdInput(e.target.value)} />
+              <input type="text" id="spotify-client" className="grow" value={clientIdInput} onChange={(e) => setClientIdInput(e.target.value)} />
               <button type="button" className="btn sm" onClick={saveClientId} disabled={busy}>Spara</button>
             </div>
           </div>
@@ -343,6 +344,7 @@ export default function Admin() {
         </p>
         <div className="row wrap">
           <input
+            type="text"
             className="grow"
             value={seedCode}
             onChange={(e) => setSeedCode(e.target.value)}

@@ -257,7 +257,7 @@ export default function MusicTracksEditor({ activity, onChanged }) {
           <div className="row wrap" style={{ gap: '.4rem', alignItems: 'flex-end' }}>
             <div className="field grow" style={{ margin: 0, minWidth: 220 }}>
               <label className="muted small">Spellistelänk</label>
-              <input placeholder="https://open.spotify.com/playlist/…" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} />
+              <input type="text" placeholder="https://open.spotify.com/playlist/…" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} />
             </div>
             <div className="field" style={{ margin: 0 }}>
               <label className="muted small">Hur många</label>
@@ -287,7 +287,7 @@ export default function MusicTracksEditor({ activity, onChanged }) {
 
           {hideFromHost ? (
             <>
-              <input className="grow" placeholder="Spotify-spårlänk (https://open.spotify.com/track/…)" value={t.spotifyUrl || ''} onChange={(e) => patch(t.id, { spotifyUrl: e.target.value })} />
+              <input type="text" className="grow" placeholder="Spotify-spårlänk (https://open.spotify.com/track/…)" value={t.spotifyUrl || ''} onChange={(e) => patch(t.id, { spotifyUrl: e.target.value })} />
               <p className="muted small" style={{ margin: 0 }}>
                 Svaren är dolda medan du spelar. Stäng av ”Dölj svaren för mig — jag spelar också” för att se eller ändra dem.
               </p>
@@ -300,7 +300,7 @@ export default function MusicTracksEditor({ activity, onChanged }) {
           ) : (
             <>
               <div className="row" style={{ gap: '.4rem' }}>
-                <input className="grow" placeholder="Spotify-spårlänk (https://open.spotify.com/track/…)" value={t.spotifyUrl || ''} onChange={(e) => patch(t.id, { spotifyUrl: e.target.value })} />
+                <input type="text" className="grow" placeholder="Spotify-spårlänk (https://open.spotify.com/track/…)" value={t.spotifyUrl || ''} onChange={(e) => patch(t.id, { spotifyUrl: e.target.value })} />
                 <button type="button" className="btn ghost sm" onClick={() => autoFill(t)} disabled={busy || !(t.spotifyUrl && t.spotifyUrl.trim())} title="Slå upp titel/artist/år från länken">
                   {fillingId === t.id ? '…' : 'Autofyll'}
                 </button>
@@ -308,11 +308,11 @@ export default function MusicTracksEditor({ activity, onChanged }) {
               {fillNotes[t.id] ? <p className="muted small" style={{ margin: 0 }}>{fillNotes[t.id]}</p> : null}
               <div className="field" style={{ margin: 0 }}>
                 <label className="muted small">Låttitel (rätt svar)</label>
-                <input placeholder="t.ex. Bohemian Rhapsody" value={t.acceptedFreeTextAnswer || ''} onChange={(e) => patch(t.id, { acceptedFreeTextAnswer: e.target.value })} />
+                <input type="text" placeholder="t.ex. Bohemian Rhapsody" value={t.acceptedFreeTextAnswer || ''} onChange={(e) => patch(t.id, { acceptedFreeTextAnswer: e.target.value })} />
               </div>
               <div className="field" style={{ margin: 0 }}>
                 <label className="muted small">Artist (rätt svar)</label>
-                <input placeholder="t.ex. Queen" value={t.acceptedArtist || ''} onChange={(e) => patch(t.id, { acceptedArtist: e.target.value })} />
+                <input type="text" placeholder="t.ex. Queen" value={t.acceptedArtist || ''} onChange={(e) => patch(t.id, { acceptedArtist: e.target.value })} />
               </div>
               <div className="field" style={{ margin: 0 }}>
                 <label className="muted small">Utgivningsår <span style={{ fontWeight: 400 }}>(valfritt — för en Hitster-runda)</span></label>

@@ -26,6 +26,9 @@ const eventSchema = new mongoose.Schema({
   // promoted to co-host. A global `admin`-role account can manage any event.
   owner: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', default: null, index: true },
   admins: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Account' }], default: [] },
+
+  // Soft archive — hides from the main listing but keeps data intact.
+  isArchived: { type: Boolean, default: false },
 });
 
 module.exports = mongoose.model('Event', eventSchema);

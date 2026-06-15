@@ -89,6 +89,7 @@ export default function Users() {
         <p className="muted">Registrera alla en gång. Sedan väljer du in dem i varje evenemang.</p>
         <div className="row">
           <input
+            type="text"
             className="grow"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
@@ -110,6 +111,7 @@ export default function Users() {
                 {renameId === u.id ? (
                   <>
                     <input
+                      type="text"
                       className="grow"
                       value={renameName}
                       onChange={(e) => setRenameName(e.target.value)}

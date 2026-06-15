@@ -45,8 +45,8 @@ export default function MemoryCardsEditor({ activity, onChanged }) {
     setLoading(true);
     (async () => {
       try {
-        const cards = await getMemoryCards(activity.id);
-        const w = (cards || []).map((c) => c.text);
+        const res = await getMemoryCards(activity.id);
+        const w = (res?.cards || res || []).map((c) => c.text);
         if (alive) { setWords(w); setText(w.join('\n')); }
       } catch (e) {
         if (alive) setError(e?.message || 'Kunde inte ladda korten.');
@@ -61,8 +61,8 @@ export default function MemoryCardsEditor({ activity, onChanged }) {
     setBusy(true);
     setError(null);
     try {
-      const cards = await setMemoryCards(activity.id, list);
-      const w = (cards || []).map((c) => c.text);
+      const result = await setMemoryCards(activity.id, list);
+      const w = result?.words || [];
       if (aliveRef.current) { setWords(w); setText(w.join('\n')); }
       onChanged?.();
     } catch (e) {

@@ -16,6 +16,7 @@ const ServerEvents = Object.freeze({
   TimerStarted: 'TimerStarted',
   TimerStopped: 'TimerStopped',
   MusicTrackStarted: 'MusicTrackStarted',
+  HitsterStateChanged: 'HitsterStateChanged',
 });
 
 // Client → server (clients emit, server handles).
