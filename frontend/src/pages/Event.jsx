@@ -16,7 +16,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   getEvent, getStandings, getTeams, reshuffleTeams, setMembers, updateEvent,
   setEventCode, reorderActivities, setActivitiesStatus, arrive, joinEvent, claimEvent,
-  claimEventAsMe, addEventAdmin, removeEventAdmin,
+  claimEventAsMe, addEventAdmin, removeEventAdmin, deleteEvent,
 } from '../api/events';
 import { inviteToEvent } from '../api/invites';
 import { getFriends } from '../api/me';
@@ -834,6 +834,7 @@ export default function Event() {
           onResetAll={resetAll}
           onReload={reload}
           onToast={show}
+          navigate={navigate}
         />
 
         {/* Optional: the host can also play. Small, secondary, no big join cards. */}
@@ -889,10 +890,11 @@ export default function Event() {
 // ── Host controls block ───────────────────────────────────────────────────────
 function HostControls({
   event, activities, busy, onSetStatus, onMove, onSimulate, onRemove, onReset,
-  onSimulateAll, onResetAll, onReload, onToast,
+  onSimulateAll, onResetAll, onReload, onToast, navigate,
 }) {
   const id = event.id;
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [confirmDeleteEvent, setConfirmDeleteEvent] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newType, setNewType] = useState(ActivityType.Quiz);
   const [localBusy, setLocalBusy] = useState(false);
@@ -1270,6 +1272,33 @@ function HostControls({
           <button type="button" className="btn block ghost" onClick={toggleArchive} disabled={anyBusy} style={{ marginTop: '.5rem' }}>
             {event.isArchived ? 'Återställ från arkiv' : 'Arkivera evenemanget'}
           </button>
+        </div>
+      </details>
+
+      {/* Delete entire event */}
+      <details>
+        <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--danger, #c00)' }}>Radera evenemang</summary>
+        <div className="stack" style={{ marginTop: '.6rem' }}>
+          <p className="muted">Tar bort evenemanget och alla dess aktiviteter, resultat, chattar och lag permanent. Kan inte ångras.</p>
+          {confirmDeleteEvent ? (
+            <div className="row">
+              <button type="button" className="btn danger" onClick={async () => {
+                setLocalBusy(true);
+                try {
+                  await deleteEvent(id);
+                  navigate('/', { replace: true });
+                } catch (err) {
+                  onToast(err?.message || 'Kunde inte radera evenemanget.');
+                  setConfirmDeleteEvent(false);
+                } finally {
+                  setLocalBusy(false);
+                }
+              }} disabled={anyBusy}>Ja, radera permanent</button>
+              <button type="button" className="btn ghost" onClick={() => setConfirmDeleteEvent(false)}>Avbryt</button>
+            </div>
+          ) : (
+            <button type="button" className="btn block danger" onClick={() => setConfirmDeleteEvent(true)} disabled={anyBusy}>Radera evenemanget och alla aktiviteter</button>
+          )}
         </div>
       </details>
     </div>
