@@ -68,8 +68,8 @@ const env = {
   vapidPrivateKey: str(process.env.VAPID_PRIVATE_KEY),
   vapidSubject: process.env.VAPID_SUBJECT || 'mailto:admin@example.com',
 
-  // Transactional email (optional host flows), via MailerSend.
-  mailerSendApiKey: str(process.env.MAILERSEND_API_KEY),
+  // Transactional email (optional host flows), via Resend.
+  resendApiKey: str(process.env.RESEND_API_KEY),
   emailFrom: str(process.env.EMAIL_FROM),
 
   // Image upload storage.
@@ -86,7 +86,7 @@ const env = {
   get hasSpotify() { return !!this.spotifyClientId; },
   get hasSpotifyServer() { return !!(this.spotifyClientId && this.spotifyClientSecret); },
   get hasWebPush() { return !!(this.vapidPublicKey && this.vapidPrivateKey); },
-  get hasEmail() { return !!this.mailerSendApiKey; },
+  get hasEmail() { return !!this.resendApiKey; },
 };
 
 module.exports = env;

@@ -1,9 +1,8 @@
 const env = require('../config/env');
 
-// Transactional email (host verify / reset / magic-link), via MailerSend.
-// Entirely optional — when MAILERSEND_API_KEY is unset, isEnabled() is false and
-// the auth routes simply skip sending (username+password still works). Mirrors
-// Glosan's email service interface.
+// Transactional email (host verify / reset / magic-link), via Resend. Entirely
+// optional — when RESEND_API_KEY is unset, isEnabled() is false and the auth
+// routes simply skip sending (username+password still works).
 let client = null;
 
 function isEnabled() {
@@ -11,11 +10,11 @@ function isEnabled() {
 }
 
 function getClient() {
-  if (!client && env.mailerSendApiKey) {
+  if (!client && env.resendApiKey) {
     try {
       // eslint-disable-next-line global-require
-      const { MailerSend } = require('mailersend');
-      client = new MailerSend({ apiKey: env.mailerSendApiKey });
+      const { Resend } = require('resend');
+      client = new Resend(env.resendApiKey);
     } catch {
       client = null;
     }
@@ -23,46 +22,26 @@ function getClient() {
   return client;
 }
 
-// Parse an EMAIL_FROM value of the form "Name <addr@domain>" or "addr@domain"
-// into the { email, name } pair the MailerSend Sender expects.
-function parseFrom(raw) {
-  const value = (raw || 'Rundan <noreply@example.com>').trim();
-  const m = value.match(/^\s*(.*?)\s*<([^>]+)>\s*$/);
-  if (m) return { name: m[1] || env.appName, email: m[2].trim() };
-  return { name: env.appName, email: value };
-}
-
 async function send({ to, subject, html, text }) {
   if (!isEnabled()) throw new Error('Email service not configured');
   const c = getClient();
   if (!c) throw new Error('Email client unavailable');
 
-  // eslint-disable-next-line global-require
-  const { EmailParams, Sender, Recipient } = require('mailersend');
-  const from = parseFrom(env.emailFrom);
-  const recipients = (Array.isArray(to) ? to : [to]).map((addr) => new Recipient(addr));
-
-  const params = new EmailParams()
-    .setFrom(new Sender(from.email, from.name))
-    .setTo(recipients)
-    .setSubject(subject);
-  if (html) params.setHtml(html);
-  if (text) params.setText(text);
-
-  try {
-    return await c.email.send(params);
-  } catch (err) {
-    // The MailerSend SDK throws a response-like object with no `.message`, so
-    // callers logged `undefined`. Surface the status + API body so the real
-    // reason shows up — e.g. a trial-mode account that may only send to the
-    // account owner's own address until it's approved.
-    const status = err?.statusCode ?? err?.response?.statusCode ?? '';
-    const rawBody = err?.body ?? err?.response?.body ?? err?.message;
-    const detail = rawBody && typeof rawBody === 'object'
-      ? JSON.stringify(rawBody)
-      : String(rawBody ?? 'unknown error');
-    throw new Error(`MailerSend send failed (${status}): ${detail}`);
+  // Resend takes the From as a full "Name <addr@domain>" string and returns
+  // { data, error } — it does NOT throw on API errors, so surface `error`
+  // ourselves (e.g. an unverified sending domain) for the callers' logs.
+  const { data, error } = await c.emails.send({
+    from: env.emailFrom || `${env.appName} <noreply@example.com>`,
+    to: Array.isArray(to) ? to : [to],
+    subject,
+    html,
+    text,
+  });
+  if (error) {
+    const detail = typeof error === 'object' ? JSON.stringify(error) : String(error);
+    throw new Error(`Resend send failed: ${detail}`);
   }
+  return data;
 }
 
 function wrapTemplate({ title, intro, ctaUrl, ctaLabel, footer }) {
