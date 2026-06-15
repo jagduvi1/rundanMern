@@ -31,4 +31,9 @@ const eventSchema = new mongoose.Schema({
   isArchived: { type: Boolean, default: false },
 });
 
+// The event-list filters are `$or: [{ owner }, { admins }]`; owner is indexed
+// inline above, this multikey index lets the admins branch use an index too so
+// the whole union is index-driven.
+eventSchema.index({ admins: 1 });
+
 module.exports = mongoose.model('Event', eventSchema);

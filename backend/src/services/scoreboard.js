@@ -82,19 +82,22 @@ async function buildScoreboard(activityId) {
       rank: 0,
     }));
   } else if (isQuestionGame) {
-    totalQuestions = await Question.countDocuments({ activityId: activity._id });
-
-    // Group answers of this activity's participants by participant.
-    const rows = await Answer.aggregate([
-      { $match: { participantId: { $in: participants.map((p) => p._id) } } },
-      {
-        $group: {
-          _id: '$participantId',
-          points: { $sum: '$awardedPoints' },
-          count: { $sum: 1 },
+    // The question count and the answer aggregate are independent — run together.
+    const [questionTotal, rows] = await Promise.all([
+      Question.countDocuments({ activityId: activity._id }),
+      // Group answers of this activity's participants by participant.
+      Answer.aggregate([
+        { $match: { participantId: { $in: participants.map((p) => p._id) } } },
+        {
+          $group: {
+            _id: '$participantId',
+            points: { $sum: '$awardedPoints' },
+            count: { $sum: 1 },
+          },
         },
-      },
+      ]),
     ]);
+    totalQuestions = questionTotal;
     for (const row of rows) {
       const key = idStr(row._id);
       // Only participants already in totals are updated — orphan answer rows

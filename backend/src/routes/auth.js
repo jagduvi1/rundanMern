@@ -6,7 +6,7 @@ const rateLimit = require('express-rate-limit');
 const Account = require('../models/Account');
 const Token = require('../models/Token');
 const emailService = require('../services/email');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, invalidateAccount } = require('../middleware/auth');
 const env = require('../config/env');
 const magicLink = require('../services/magicLink');
 const invites = require('../services/invites');
@@ -305,6 +305,7 @@ router.post('/logout-all', requireAuth, async (req, res) => {
       account.refreshTokenHash = null;
       account.refreshTokenFamily = null;
       await account.save();
+      invalidateAccount(account._id); // kill cached tokenVersion at once
     }
     res.clearCookie('refreshToken', refreshCookieOptions);
     res.json({ message: 'Signed out on all devices.' });
@@ -392,6 +393,7 @@ router.post('/reset-password', authLimiter, async (req, res) => {
       account.emailVerifiedAt = new Date();
     }
     await account.save();
+    invalidateAccount(account._id); // kill cached tokenVersion at once
     res.json({ message: 'Password updated. Log in with the new one.' });
   } catch (error) {
     if (error.name === 'ValidationError') {

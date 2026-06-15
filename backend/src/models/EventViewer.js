@@ -4,11 +4,16 @@ const crypto = require('crypto');
 // A spectator of an event — sees everything, doesn't compete. Tracked so others
 // see who's watching; stale viewers (lastSeenUtc older than ~15 min) drop off.
 const eventViewerSchema = new mongoose.Schema({
-  eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', required: true, index: true },
+  eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', required: true },
   name: { type: String, required: true, maxlength: 60 },
   token: { type: String, required: true, unique: true, default: () => crypto.randomUUID() },
   lastSeenUtc: { type: Date, default: Date.now },
 });
+
+// The recently-seen lookup (per event, lastSeenUtc within the window) is the hot
+// read — this compound serves it and also covers any eventId-only query as a
+// prefix, so a separate single-field eventId index isn't needed.
+eventViewerSchema.index({ eventId: 1, lastSeenUtc: 1 });
 
 // Stale viewers drop off ~15 min after their last heartbeat (matches the
 // recently-seen window); the heartbeat refreshes lastSeenUtc and resets the TTL.

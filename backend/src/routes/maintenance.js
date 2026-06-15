@@ -18,7 +18,7 @@ const env = require('../config/env');
 const { uploadsDir } = require('../config/paths');
 const models = require('../models');
 const { RuleViolation, asyncHandler } = require('../middleware/error');
-const { optionalAuth, requireAdmin } = require('../middleware/auth');
+const { optionalAuth, requireAdmin, invalidateAccount } = require('../middleware/auth');
 const { canUpload } = require('../middleware/eventAuth');
 const { timingSafeEqualStr } = require('../utils/security');
 const dataSeeder = require('../services/dataSeeder');
@@ -204,6 +204,7 @@ router.put(
     account.roles = [...roles];
     account.tokenVersion = (account.tokenVersion || 0) + 1; // apply immediately
     await account.save();
+    invalidateAccount(account._id); // drop cached tokenVersion so it takes effect now
     res.json({ id: String(account._id), isAdmin: account.roles.includes('admin') });
   })
 );

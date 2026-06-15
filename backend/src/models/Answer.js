@@ -18,5 +18,9 @@ const answerSchema = new mongoose.Schema({
 
 // One answer per participant per question.
 answerSchema.index({ questionId: 1, participantId: 1 }, { unique: true });
+// Standings/team-shuffle/simulation scan answers by participant; the unique
+// compound above leads with questionId so it can't serve a participantId-only
+// lookup. This single-field index turns those scans into index seeks.
+answerSchema.index({ participantId: 1 });
 
 module.exports = mongoose.model('Answer', answerSchema);

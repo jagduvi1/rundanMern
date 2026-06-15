@@ -44,18 +44,52 @@ const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 // the recently-seen viewer names. `canManage`/`pendingSlap` are layered on by the
 // callers that have the request / slaps.
 async function loadEventDto(event) {
-  const hasRosterCount = await EventMember.countDocuments({ eventId: event._id });
   const teamBased = event.teamSize > 1;
 
-  const activities = await Activity.find({ eventId: event._id }).sort({ order: 1, _id: 1 });
+  // Wave 1 — independent reads run together: the activity list, the roster (also
+  // gives us hasRosterCount, dropping a separate countDocuments), the live viewer
+  // names, and the owner/co-admin accounts for the host UI.
+  const [activities, memberRows, viewers, ownerAccount, coAdminAccounts] = await Promise.all([
+    Activity.find({ eventId: event._id }).sort({ order: 1, _id: 1 }).lean(),
+    EventMember.find({ eventId: event._id }).populate('userId', 'name').lean(),
+    currentViewerNames(event._id),
+    event.owner
+      ? Account.findById(event.owner).select('username displayName email').lean()
+      : null,
+    (event.admins || []).length
+      ? Account.find({ _id: { $in: event.admins } }).select('username displayName email').lean()
+      : [],
+  ]);
 
-  const activityDtos = [];
-  for (const a of activities) {
-    // eslint-disable-next-line no-await-in-loop
-    const [participantCount, questionCount] = await Promise.all([
-      Participant.countDocuments({ activityId: a._id }),
-      Question.countDocuments({ activityId: a._id }),
-    ]);
+  // hasRosterCount = every member row (same as the old countDocuments — find
+  // returns exactly the rows it would have counted).
+  const hasRosterCount = memberRows.length;
+
+  // Wave 2 — per-activity participant/question counts batched into two grouped
+  // aggregations (was 2 countDocuments PER activity → 2 queries total), run
+  // alongside the route-length estimate (its own one Question.find).
+  const activityIds = activities.map((a) => a._id);
+  const [partGroups, qGroups, estimatedMeters] = await Promise.all([
+    activityIds.length
+      ? Participant.aggregate([
+          { $match: { activityId: { $in: activityIds } } },
+          { $group: { _id: '$activityId', c: { $sum: 1 } } },
+        ])
+      : [],
+    activityIds.length
+      ? Question.aggregate([
+          { $match: { activityId: { $in: activityIds } } },
+          { $group: { _id: '$activityId', c: { $sum: 1 } } },
+        ])
+      : [],
+    estimateRouteMeters(event._id, activities),
+  ]);
+  const partCounts = new Map(partGroups.map((g) => [String(g._id), g.c]));
+  const qCounts = new Map(qGroups.map((g) => [String(g._id), g.c]));
+
+  const activityDtos = activities.map((a) => {
+    const participantCount = partCounts.get(String(a._id)) || 0;
+    const questionCount = qCounts.get(String(a._id)) || 0;
     // For event activities: isTeamBased follows the event's team size; when a
     // roster exists, player/team counts come from the roster (matches the .NET
     // ActivityDto.LoadDto override) rather than the joined participant count.
@@ -63,39 +97,22 @@ async function loadEventDto(event) {
     const playerCount = hasRosterCount > 0 ? hasRosterCount : participantCount;
     const teamCount =
       hasRosterCount > 0 && isTeamBased ? Math.ceil(hasRosterCount / event.teamSize) : 0;
-
-    activityDtos.push(
-      activityDto(a, {
-        canManage: false,
-        isTeamBased,
-        participantCount,
-        questionCount,
-        playerCount,
-        teamCount,
-      })
-    );
-  }
+    return activityDto(a, {
+      canManage: false,
+      isTeamBased,
+      participantCount,
+      questionCount,
+      playerCount,
+      teamCount,
+    });
+  });
 
   // Roster members ordered by user name; adminUserIds = members flagged isAdmin.
-  const memberRows = await EventMember.find({ eventId: event._id })
-    .populate('userId', 'name')
-    .lean();
   const sortedMembers = memberRows
     .filter((m) => m.userId)
     .sort((a, b) => (a.userId.name || '').localeCompare(b.userId.name || ''));
   const members = sortedMembers.map((m) => userDto(m.userId));
   const adminUserIds = sortedMembers.filter((m) => m.isAdmin).map((m) => idStr(m.userId));
-
-  const estimatedMeters = await estimateRouteMeters(event._id, activities);
-  const viewers = await currentViewerNames(event._id);
-
-  // Account owner + co-admins (accounts in event.admins) for the host UI.
-  const ownerAccount = event.owner
-    ? await Account.findById(event.owner).select('username displayName email').lean()
-    : null;
-  const coAdminAccounts = (event.admins || []).length
-    ? await Account.find({ _id: { $in: event.admins } }).select('username displayName email').lean()
-    : [];
 
   return {
     id: idStr(event),
@@ -197,8 +214,10 @@ function nextTeamSeed(current) {
   return seed;
 }
 
-// Newest-first list of matching events as DTOs: by startsAt ?? createdUtc desc,
-// then _id desc (port of ListAllEventDtos; _id ≈ creation order).
+// Newest-first list of matching events: by startsAt ?? createdUtc desc, then _id
+// desc (port of ListAllEventDtos; _id ≈ creation order). Returns { event, dto }
+// pairs so callers can layer canManage from the already-loaded event doc rather
+// than re-fetching it. DTOs are built concurrently.
 async function listEventDtos(filter = {}) {
   const events = await Event.find(filter).lean();
   events.sort((a, b) => {
@@ -207,12 +226,8 @@ async function listEventDtos(filter = {}) {
     if (ak !== bk) return ak < bk ? 1 : -1;
     return String(a._id) < String(b._id) ? 1 : -1;
   });
-  const result = [];
-  for (const ev of events) {
-    // eslint-disable-next-line no-await-in-loop
-    result.push(await loadEventDto(ev));
-  }
-  return result;
+  const dtos = await Promise.all(events.map((ev) => loadEventDto(ev)));
+  return events.map((event, i) => ({ event, dto: dtos[i] }));
 }
 
 // Events the account *manages* — owns or co-admins. (The super-admin role is for
@@ -284,13 +299,14 @@ router.get(
   '/',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const dtos = await listEventDtos(managedEventFilter(req));
-    for (const dto of dtos) {
-      // eslint-disable-next-line no-await-in-loop
-      dto.canManage = await canManageEvent(req, await Event.findById(dto.id));
+    const rows = await listEventDtos(managedEventFilter(req));
+    await Promise.all(rows.map(async ({ event, dto }) => {
+      // Use the already-loaded event doc (no re-fetch); canManageEvent only needs
+      // its owner/admins, which the lean doc carries.
+      dto.canManage = await canManageEvent(req, event);
       redactManagement(dto);
-    }
-    res.json(dtos);
+    }));
+    res.json(rows.map((r) => r.dto));
   })
 );
 
@@ -303,13 +319,13 @@ router.get(
   asyncHandler(async (req, res) => {
     const filter = await connectedEventFilter(req);
     if (!filter) return res.json([]); // anonymous → no events
-    const dtos = (await listEventDtos(filter)).filter((d) => !d.isArchived);
-    for (const dto of dtos) {
-      // eslint-disable-next-line no-await-in-loop
-      dto.canManage = await canManageEvent(req, await Event.findById(dto.id));
+    const rows = (await listEventDtos(filter)).filter(({ dto }) => !dto.isArchived);
+    await Promise.all(rows.map(async ({ event, dto }) => {
+      // Reuse the loaded event doc instead of re-fetching it per row.
+      dto.canManage = await canManageEvent(req, event);
       redactManagement(dto);
-    }
-    return res.json(dtos);
+    }));
+    return res.json(rows.map((r) => r.dto));
   })
 );
 

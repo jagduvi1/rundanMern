@@ -82,26 +82,25 @@ async function pointsByParticipant(activityIds) {
     points.set(key, (points.get(key) || 0) + value);
   };
 
-  // Answer points — join Answer -> Participant to scope to this event's activities.
-  const answerRows = await Answer.aggregate([
-    {
-      $lookup: {
-        from: Participant.collection.name,
-        localField: 'participantId',
-        foreignField: '_id',
-        as: 'participant',
-      },
-    },
-    { $unwind: '$participant' },
-    { $match: { 'participant.activityId': { $in: activityIds } } },
-    { $project: { participantId: 1, awardedPoints: 1 } },
+  // Scope to this event's participants up front, then sum answer points per
+  // participant IN THE DB. The old shape $lookup-joined the ENTIRE Answer
+  // collection to Participant before filtering — an unbounded scan that grew with
+  // every event's answers. Matching on participantId first (index-driven on
+  // Answer.participantId) keeps it proportional to this event. A participant whose
+  // answers net to 0 still appears (group emits a 0 row → key inserted); one with
+  // no answer rows is absent — preserving the "recorded something" key semantics.
+  const partIds = await Participant.find({ activityId: { $in: activityIds } }).distinct('_id');
+  const [answerRows, scoreRows] = await Promise.all([
+    partIds.length
+      ? Answer.aggregate([
+          { $match: { participantId: { $in: partIds } } },
+          { $group: { _id: '$participantId', points: { $sum: '$awardedPoints' } } },
+        ])
+      : [],
+    ScoreEntry.find({ activityId: { $in: activityIds } }).select('participantId points').lean(),
   ]);
-  for (const r of answerRows) add(r.participantId, r.awardedPoints || 0);
-
+  for (const r of answerRows) add(r._id, r.points || 0);
   // Score points — scoped directly by activityId.
-  const scoreRows = await ScoreEntry.find({ activityId: { $in: activityIds } })
-    .select('participantId points')
-    .lean();
   for (const r of scoreRows) add(r.participantId, r.points || 0);
 
   return points;
@@ -113,14 +112,18 @@ async function buildRoster(ev, roster) {
   const activities = await loadEventActivities(ev._id);
   const activityIds = activities.map((a) => a._id);
 
-  const points = await pointsByParticipant(activityIds);
-
-  // Team participants of the event, plus each team's member user-ids. Members are
-  // an embedded array on Participant (`members: [{ userId }]`), so we read them
-  // straight off the doc rather than from a separate join collection.
-  const teamParts = await Participant.find({ activityId: { $in: activityIds }, isTeam: true })
-    .select('_id activityId members')
-    .lean();
+  // points, the team participants, and the slap rows are independent — fetch in
+  // parallel. (Team participants carry their member user-ids in an embedded
+  // `members` array, so no separate join collection.)
+  const [points, teamParts, slaps] = await Promise.all([
+    pointsByParticipant(activityIds),
+    Participant.find({ activityId: { $in: activityIds }, isTeam: true })
+      .select('_id activityId members')
+      .lean(),
+    Slap.find({ eventId: ev._id, skipped: false })
+      .select('slappedUserId recipientUserId penalty')
+      .lean(),
+  ]);
   const membersByParticipant = new Map();
   for (const tp of teamParts) {
     membersByParticipant.set(
@@ -167,9 +170,6 @@ async function buildRoster(ev, roster) {
     lost.set(u.userId, 0);
     received.set(u.userId, 0);
   }
-  const slaps = await Slap.find({ eventId: ev._id, skipped: false })
-    .select('slappedUserId recipientUserId penalty')
-    .lean();
   for (const s of slaps) {
     const slapped = idStr(s.slappedUserId);
     const penalty = s.penalty || 0;
@@ -201,13 +201,15 @@ async function buildFreeName(ev) {
   const activities = await loadEventActivities(ev._id);
   const activityIds = activities.map((a) => a._id);
 
-  const points = await pointsByParticipant(activityIds);
-
-  // Every participant counts here (NOT filtered by isTeam). Identity = the
-  // DisplayName string (case-sensitive ordinal), not a user id.
-  const parts = await Participant.find({ activityId: { $in: activityIds } })
-    .select('_id activityId displayName')
-    .lean();
+  // points and the participant list are independent — fetch together. Every
+  // participant counts here (NOT filtered by isTeam). Identity = the DisplayName
+  // string (case-sensitive ordinal), not a user id.
+  const [points, parts] = await Promise.all([
+    pointsByParticipant(activityIds),
+    Participant.find({ activityId: { $in: activityIds } })
+      .select('_id activityId displayName')
+      .lean(),
+  ]);
 
   const totals = new Map(); // name -> points
   const played = new Map(); // name -> Set<activityIdStr>

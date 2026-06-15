@@ -15,5 +15,9 @@ const eventMemberSchema = new mongoose.Schema({
 
 // A user is in an event at most once.
 eventMemberSchema.index({ eventId: 1, userId: 1 }, { unique: true });
+// The player-facing "/events/active" path, the "my events" list and cascade
+// look up memberships by userId alone — the compound above leads with eventId
+// so it can't serve those. This single-field index removes the scan.
+eventMemberSchema.index({ userId: 1 });
 
 module.exports = mongoose.model('EventMember', eventMemberSchema);
