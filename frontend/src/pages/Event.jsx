@@ -1478,7 +1478,17 @@ function InviteResultRow({ result, onShowQr, onToast }) {
     <div className="stack" style={{ gap: 4, borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
       <div className="row">
         <span className="grow"><b>{result.name || result.email}</b></span>
-        {result.emailed ? <span className="pill ok small">Mejlad</span> : null}
+        {result.emailed ? (
+          <span className="pill ok small">Mejlad</span>
+        ) : (
+          <span
+            className="pill small"
+            style={{ background: '#a16207', color: '#fffbeb' }}
+            title="E-postutskicket misslyckades — dela länken nedan manuellt"
+          >
+            Ej mejlad
+          </span>
+        )}
       </div>
       <div className="row wrap" style={{ gap: 6 }}>
         <span className="muted small" style={{ wordBreak: 'break-all', flex: 1, minWidth: 0 }}>{result.link}</span>
