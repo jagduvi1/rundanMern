@@ -11,6 +11,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useBootstrap } from '../contexts/BootstrapContext';
 import AppMenu from './AppMenu';
+import VerifyBanner from './VerifyBanner';
 
 export default function Layout({ children }) {
   const { appName } = useBootstrap();
@@ -42,6 +43,8 @@ export default function Layout({ children }) {
         </Link>
         <span className="grow" />
       </header>
+
+      <VerifyBanner />
 
       <main className="container">{children}</main>
 
