@@ -11,6 +11,8 @@ export const deleteEvent = (id) => apiDelete(`/events/${id}`, { eventId: id });
 export const setMembers = (id, userIds, adminUserIds) =>
   apiPut(`/events/${id}/members`, { userIds, adminUserIds }, { eventId: id });
 export const setEventCode = (id, code) => apiPut(`/events/${id}/code`, { code }, { eventId: id });
+export const setCoAdmins = (id, adminIds) =>
+  apiPut(`/events/${id}/admins`, { adminIds }, { eventId: id });
 export const reorderActivities = (id, activityIds) =>
   apiPut(`/events/${id}/reorder`, { activityIds }, { eventId: id });
 export const setActivitiesStatus = (id, status) =>

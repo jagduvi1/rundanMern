@@ -107,6 +107,8 @@ async function loadEventDto(event) {
     adminUserIds,
     canManage: false,
     viewers,
+    isArchived: event.isArchived ?? false,
+    coAdminIds: (event.admins || []).map((a) => String(a)),
     // Computed read-only props the client also reads.
     hasRoster: members.length > 0,
     isComplete:
@@ -230,18 +232,19 @@ router.get(
   })
 );
 
-// GET /api/events/active — player welcome page; identical list, access-gated only
-// (no host login). canManage computed per row for anonymous/host callers alike.
+// GET /api/events/active — player welcome page; excludes archived events.
+// canManage computed per row for anonymous/host callers alike.
 router.get(
   '/active',
   optionalAuth,
   asyncHandler(async (req, res) => {
     const dtos = await listAllEventDtos();
-    for (const dto of dtos) {
+    const active = dtos.filter((d) => !d.isArchived);
+    for (const dto of active) {
       // eslint-disable-next-line no-await-in-loop
       dto.canManage = await canManageEvent(req, await Event.findById(dto.id));
     }
-    res.json(dtos);
+    res.json(active);
   })
 );
 
@@ -353,11 +356,34 @@ router.put(
       event.fixedTeamSeed = nextTeamSeed(0);
     }
     if (body.slapMode != null) event.slapMode = body.slapMode;
+    if (body.isArchived != null) event.isArchived = !!body.isArchived;
     event.startsAt = body.startsAt ?? null;
     event.endsAt = body.endsAt ?? null;
     await event.save();
 
     if (teamModeChanged) await teams.resetUnplayedTeams(event._id);
+
+    const dto = await loadEventDto(event);
+    dto.canManage = true;
+    res.json(dto);
+  })
+);
+
+// PUT /api/events/:id/admins — set co-admin account ids on the event. Only the
+// owner (or a global admin) may promote/demote co-admins. The admins array stores
+// Account ObjectIds that the eventAuth middleware already checks.
+router.put(
+  '/:id/admins',
+  requireAuth,
+  eventManager,
+  asyncHandler(async (req, res) => {
+    const event = req.targetEvent;
+    const ids = Array.isArray(req.body?.adminIds) ? req.body.adminIds : [];
+    // Verify each id is a real account (exclude the owner — they always have access).
+    const ownerId = event.owner ? String(event.owner) : null;
+    const real = await User.find({ _id: { $in: ids } }).select('_id').lean();
+    event.admins = real.map((u) => u._id).filter((id) => String(id) !== ownerId);
+    await event.save();
 
     const dto = await loadEventDto(event);
     dto.canManage = true;

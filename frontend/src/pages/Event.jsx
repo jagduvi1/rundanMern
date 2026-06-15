@@ -15,13 +15,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   getEvent, getStandings, getTeams, reshuffleTeams, setMembers, updateEvent,
-  setEventCode, reorderActivities, setActivitiesStatus, arrive, joinEvent, claimEvent,
+  setEventCode, setCoAdmins, reorderActivities, setActivitiesStatus, arrive, joinEvent, claimEvent,
   claimEventAsMe,
 } from '../api/events';
 import { inviteToEvent } from '../api/invites';
 import { getFriends } from '../api/me';
 import { createActivity, setActivityStatus, deleteActivity } from '../api/activities';
-import { simulate } from '../api/simulation';
+import { simulate, resetResults } from '../api/simulation';
 import {
   getChat, postChat, registerViewer, getActivitySlap,
 } from '../api/eventSocial';
@@ -453,6 +453,7 @@ export default function Event() {
     }
   }, 'Simulerade alla aktiviteter.');
   const removeActivity = (activityId) => hostAction(() => deleteActivity(activityId));
+  const resetActivity = (activityId) => hostAction(() => resetResults(activityId), 'Aktiviteten återställd.');
   const resetAll = (status) => hostAction(() => setActivitiesStatus(id, status), 'Återställde aktiviteter.');
 
   const move = (activityId, delta) => {
@@ -827,6 +828,7 @@ export default function Event() {
           onMove={move}
           onSimulate={simulateActivity}
           onRemove={removeActivity}
+          onReset={resetActivity}
           onSimulateAll={simulateAll}
           onResetAll={resetAll}
           onReload={reload}
@@ -885,7 +887,7 @@ export default function Event() {
 
 // ── Host controls block ───────────────────────────────────────────────────────
 function HostControls({
-  event, activities, busy, onSetStatus, onMove, onSimulate, onRemove,
+  event, activities, busy, onSetStatus, onMove, onSimulate, onRemove, onReset,
   onSimulateAll, onResetAll, onReload, onToast,
 }) {
   const id = event.id;
@@ -898,6 +900,7 @@ function HostControls({
   const [allUsers, setAllUsers] = useState([]);
   const [memberIds, setMemberIds] = useState(new Set((event.members || []).map((m) => m.id)));
   const [adminIds, setAdminIds] = useState(new Set(event.adminUserIds || []));
+  const [coAdminIds, setCoAdminIds] = useState(new Set(event.coAdminIds || []));
 
   // Event details
   const [details, setDetails] = useState({
@@ -977,6 +980,19 @@ function HostControls({
     }
   };
 
+  const saveCoAdmins = async () => {
+    setLocalBusy(true);
+    try {
+      await setCoAdmins(id, [...coAdminIds]);
+      await onReload();
+      onToast('Medvärdar sparade.');
+    } catch (err) {
+      onToast(err?.message || 'Kunde inte spara medvärdar.');
+    } finally {
+      setLocalBusy(false);
+    }
+  };
+
   const saveCode = async () => {
     setLocalBusy(true);
     try { await setEventCode(id, details.code.trim()); await onReload(); onToast('Kod sparad.'); }
@@ -994,6 +1010,22 @@ function HostControls({
     try { setFixedTeams(await reshuffleTeams(id)); onToast('Lagen blandades.'); }
     catch (err) { onToast(err?.message || 'Kunde inte blanda lagen.'); }
     finally { setLocalBusy(false); }
+  };
+
+  const toggleArchive = async () => {
+    setLocalBusy(true);
+    try {
+      await updateEvent(id, {
+        name: event.name,
+        isArchived: !event.isArchived,
+      });
+      await onReload();
+      onToast(event.isArchived ? 'Evenemanget återställt.' : 'Evenemanget arkiverat.');
+    } catch (err) {
+      onToast(err?.message || 'Kunde inte arkivera.');
+    } finally {
+      setLocalBusy(false);
+    }
   };
 
   const anyBusy = busy || localBusy;
@@ -1026,6 +1058,9 @@ function HostControls({
               <button type="button" className="btn sm ghost" title="Pausa men behåll i evenemanget" onClick={() => onSetStatus(a.id, ActivityStatus.Draft)} disabled={anyBusy}>Pausa</button>
             ) : null}
             <button type="button" className="btn sm soft" onClick={() => onSimulate(a.id)} disabled={anyBusy}>Simulera</button>
+            {a.status !== ActivityStatus.Draft ? (
+              <button type="button" className="btn sm ghost" onClick={() => onReset(a.id)} disabled={anyBusy}>Återställ</button>
+            ) : null}
           </div>
           <div className="row wrap">
             <StatusBadge status={a.status} />
@@ -1091,6 +1126,36 @@ function HostControls({
                 </div>
               ))}
               <button type="button" className="btn block success" onClick={saveMembers} disabled={anyBusy}>Spara spelare</button>
+            </>
+          )}
+        </div>
+      </details>
+
+      {/* Co-admins (account-level) */}
+      <details>
+        <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Medvärdar</summary>
+        <div className="stack" style={{ marginTop: '.6rem' }}>
+          <p className="muted">Ge andra registrerade konton rätt att hantera det här evenemanget. Medvärdar kan ändra inställningar, styra aktiviteter och se allt du ser.</p>
+          {allUsers.length === 0 ? (
+            <p className="muted">Inga registrerade konton att lägga till.</p>
+          ) : (
+            <>
+              {allUsers.map((u) => (
+                <label key={u.id} className="row" style={{ fontWeight: 500 }}>
+                  <input
+                    type="checkbox"
+                    style={{ width: 'auto', minHeight: 'auto' }}
+                    checked={coAdminIds.has(u.id)}
+                    onChange={(e) => setCoAdminIds((s) => {
+                      const n = new Set(s);
+                      if (e.target.checked) n.add(u.id); else n.delete(u.id);
+                      return n;
+                    })}
+                  />
+                  <span className="grow">{u.name}</span>
+                </label>
+              ))}
+              <button type="button" className="btn block success" onClick={saveCoAdmins} disabled={anyBusy}>Spara medvärdar</button>
             </>
           )}
         </div>
@@ -1165,6 +1230,9 @@ function HostControls({
             </select>
           </div>
           <button type="button" className="btn block success" onClick={saveDetails} disabled={anyBusy || !details.name.trim()}>Spara evenemangsdetaljer</button>
+          <button type="button" className="btn block ghost" onClick={toggleArchive} disabled={anyBusy} style={{ marginTop: '.5rem' }}>
+            {event.isArchived ? 'Återställ från arkiv' : 'Arkivera evenemanget'}
+          </button>
         </div>
       </details>
     </div>

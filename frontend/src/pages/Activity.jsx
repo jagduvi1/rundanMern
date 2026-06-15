@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getActivity, getScoreboard } from '../api/activities';
+import { getEvent } from '../api/events';
 import { listParticipants } from '../api/participants';
 import { getActivitySlap } from '../api/eventSocial';
 import {
@@ -78,6 +79,7 @@ export default function Activity() {
   const [participants, setParticipants] = useState([]);
   const [session, setSession] = useState(null);
   const [slap, setSlap] = useState(null);
+  const [siblings, setSiblings] = useState(null); // { prev, next, eventId, activities }
   const [viewer, setViewerState] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -160,6 +162,21 @@ export default function Activity() {
       await Promise.all([refreshScoreboard(), refreshParticipants(), loadSlap()]);
       if (cancelled) return;
       setLoading(false);
+
+      // Fetch sibling activities for nav (best-effort, non-blocking).
+      if (act.eventId) {
+        getEvent(act.eventId).then((ev) => {
+          if (cancelled || !ev) return;
+          const sorted = [...(ev.activities || [])].sort((a, b) => a.order - b.order);
+          const idx = sorted.findIndex((a) => String(a.id) === String(id));
+          setSiblings({
+            eventId: act.eventId,
+            activities: sorted,
+            prev: idx > 0 ? sorted[idx - 1] : null,
+            next: idx >= 0 && idx < sorted.length - 1 ? sorted[idx + 1] : null,
+          });
+        }).catch(() => {});
+      }
     })();
 
     return () => { cancelled = true; };
@@ -307,10 +324,21 @@ export default function Activity() {
   return (
     <>
       {toast}
+      {activity.eventId && siblings ? (
+        <div className="row" style={navBar}>
+          {siblings.prev ? (
+            <Link className="btn ghost sm" to={`/a/${siblings.prev.id}`} title={siblings.prev.title}>‹ {siblings.prev.title}</Link>
+          ) : <span />}
+          <Link className="btn ghost sm" to={`/e/${activity.eventId}`}>Totalställning</Link>
+          {siblings.next ? (
+            <Link className="btn ghost sm" to={`/a/${siblings.next.id}`} title={siblings.next.title}>{siblings.next.title} ›</Link>
+          ) : <span />}
+        </div>
+      ) : activity.eventId ? (
+        <Link className="btn ghost sm" to={`/e/${activity.eventId}`} style={{ alignSelf: 'flex-start' }}>‹ Alla aktiviteter</Link>
+      ) : null}
+
       <div className="card stack">
-        {activity.eventId ? (
-          <Link className="btn ghost sm" to={`/e/${activity.eventId}`} style={{ alignSelf: 'flex-start' }}>‹ Alla aktiviteter</Link>
-        ) : null}
         <div className="row">
           <h1 className="grow" style={{ margin: 0 }}>{activity.title}</h1>
           <StatusBadge status={activity.status} />
@@ -360,7 +388,17 @@ export default function Activity() {
         <PhotoWall activity={activity} participant={session} canManage={canManage} />
       ) : null}
 
-      {activity.eventId ? (
+      {activity.eventId && siblings ? (
+        <div className="row" style={navBar}>
+          {siblings.prev ? (
+            <Link className="btn ghost sm" to={`/a/${siblings.prev.id}`}>‹ {siblings.prev.title}</Link>
+          ) : <span />}
+          <Link className="btn ghost sm" to={`/e/${activity.eventId}`}>Totalställning</Link>
+          {siblings.next ? (
+            <Link className="btn ghost sm" to={`/a/${siblings.next.id}`}>{siblings.next.title} ›</Link>
+          ) : <span />}
+        </div>
+      ) : activity.eventId ? (
         <Link className="btn ghost block" to={`/e/${activity.eventId}`}>← Tillbaka till alla aktiviteter</Link>
       ) : null}
 
@@ -478,6 +516,12 @@ function renderCentral(ctx) {
     </div>
   );
 }
+
+const navBar = {
+  justifyContent: 'space-between', gap: 6, padding: '.45rem .5rem',
+  background: 'var(--surface)', borderRadius: 'var(--radius-sm, 8px)',
+  border: '1px solid var(--border)', flexWrap: 'nowrap', overflow: 'hidden',
+};
 
 function LiveIndicator({ state }) {
   if (state === 'live') return <span className="pill ok" title="Liveuppdateringar är på">● Live</span>;
