@@ -75,19 +75,19 @@ export function AuthProvider({ children }) {
     })();
   }, [handleRefresh, fetchProfile]);
 
-  const register = async (username, email, password, displayName) => {
+  const register = async (username, email, password, displayName, inviteToken) => {
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ username, email, password, displayName }),
+        body: JSON.stringify({ username, email, password, displayName, inviteToken }),
       });
       const data = await res.json();
       if (!res.ok) return { success: false, error: data.error || 'Registrering misslyckades' };
       storeToken(data.token);
       setUser(data.user);
-      return { success: true };
+      return { success: true, eventId: data.eventId || null };
     } catch (error) {
       return { success: false, error: error.message };
     }

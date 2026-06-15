@@ -6,7 +6,7 @@
 const {
   Event, Activity, Participant, Question, Answer, ScoreEntry, BracketMatch,
   ActivityPhoto, EventMember, EventViewer, Slap, ChatMessage, PushSubscription, User, Account,
-  HitsterGame,
+  HitsterGame, Invite,
 } = require('../models');
 
 async function deleteQuestionCascade(questionId) {
@@ -60,6 +60,7 @@ async function deleteEventCascade(eventId) {
     Slap.deleteMany({ eventId }),
     ChatMessage.deleteMany({ eventId }),
     PushSubscription.deleteMany({ eventId }),
+    Invite.deleteMany({ eventId }),
   ]);
   await Event.deleteOne({ _id: eventId });
 }

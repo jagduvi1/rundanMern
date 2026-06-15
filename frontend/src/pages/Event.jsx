@@ -1372,7 +1372,7 @@ function InviteFriends({ eventId, shareUrl, joinCode, onToast, onReload, onShare
     <div className="card stack">
       <h2 style={{ margin: 0 }}>Bjud in spelare</h2>
       <p className="muted" style={{ margin: 0 }}>
-        Bjud in via e-post eller välj bland dina vänner — var och en får en länk som loggar in dem och tar dem hit.
+        Bjud in via e-post eller välj bland dina vänner — var och en får en länk för att registrera sig (eller logga in) och gå med.
         Eller dela bara koden/länken nedan så går de med utan konto.
       </p>
 

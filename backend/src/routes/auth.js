@@ -9,6 +9,8 @@ const emailService = require('../services/email');
 const { requireAuth } = require('../middleware/auth');
 const env = require('../config/env');
 const magicLink = require('../services/magicLink');
+const invites = require('../services/invites');
+const { eventChanged } = require('../socket/emit');
 
 // Host/admin account auth — the Glosan template adapted to rundan's Account
 // model. Players never use this (they get anonymous participant tokens). The
@@ -173,9 +175,19 @@ const rotateRefreshSecret = async (account, res) => {
 // ── Routes ────────────────────────────────────────────────────────────────────
 router.post('/register', authLimiter, async (req, res) => {
   try {
-    const { username, email, password, displayName } = req.body;
+    const { username, email, password, displayName, inviteToken } = req.body;
     if (!username || !email || !password) {
       return res.status(400).json({ error: 'Username, email, and password are required' });
+    }
+    // If registering from an event invite, the token must match the email — the
+    // invite is locked to the address it was sent to.
+    let invite = null;
+    if (inviteToken) {
+      invite = await invites.findPendingInvite(inviteToken);
+      if (!invite) return res.status(400).json({ error: 'The invite is invalid or has expired.' });
+      if (String(invite.email).toLowerCase() !== String(email).toLowerCase()) {
+        return res.status(400).json({ error: `This invite is for ${invite.email}. Register with that email.` });
+      }
     }
     const existing = await Account.findOne({
       $or: [{ email: email.toLowerCase() }, { username: username.toLowerCase() }],
@@ -194,8 +206,14 @@ router.post('/register', authLimiter, async (req, res) => {
       ageConsent: true,
     });
     const accessToken = await issueTokens(account, res);
+    // Connect the just-created account to the event it was invited to.
+    let eventId = null;
+    if (invite) {
+      eventId = String(await invites.acceptInvite(account, invite));
+      eventChanged(eventId);
+    }
     sendVerifyEmail(account).catch((e) => console.error('Verify-email send failed (non-fatal):', e.message));
-    res.status(201).json({ token: accessToken, user: userResponse(account) });
+    res.status(201).json({ token: accessToken, user: userResponse(account), eventId });
   } catch (error) {
     if (error.name === 'ValidationError') {
       return res.status(400).json({ error: Object.values(error.errors).map((e) => e.message).join(', ') });
