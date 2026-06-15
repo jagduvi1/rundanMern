@@ -223,18 +223,34 @@ router.post(
   '/',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const { name, description, imageUrl, teamSize } = req.body || {};
+    const {
+      name, description, imageUrl, teamSize, scoring, teamShuffle, slapMode, startsAt, endsAt,
+    } = req.body || {};
     if (!clean(name)) throw new RuleViolation('Give the event a name.');
+    if (startsAt && endsAt && endsAt <= startsAt) {
+      throw new RuleViolation("The event's end time must be after its start.");
+    }
 
-    const event = await Event.create({
+    // Honor the optional config at creation too (was previously dropped, forcing a
+    // second PUT). Invalid enum values are rejected by the schema on save.
+    const fields = {
       name: name.trim(),
       description: clean(description),
       imageUrl: clean(imageUrl),
       teamSize: clamp(teamSize ?? 2, 1, 20),
+      startsAt: startsAt ?? null,
+      endsAt: endsAt ?? null,
       joinCode: await uniqueJoinCode(Event),
       createdUtc: new Date(),
       owner: req.user.id,
-    });
+    };
+    if (scoring != null) fields.scoring = scoring;
+    if (teamShuffle != null) fields.teamShuffle = teamShuffle;
+    if (slapMode != null) fields.slapMode = slapMode;
+    // FixedForEvent needs a seed to lock teams; assign one when chosen up front.
+    if (teamShuffle === 1 /* FixedForEvent */) fields.fixedTeamSeed = nextTeamSeed(0);
+
+    const event = await Event.create(fields);
 
     const dto = await loadEventDto(event);
     dto.canManage = true; // the creator is the owner
@@ -699,8 +715,10 @@ router.put(
 
 // POST /api/events/:id/simulate — dry-run fill every activity (in running order)
 // with plausible random results so the host can preview the whole event before the
-// real day. Each activity is wrapped in try/catch so an unsimulatable one is
-// skipped rather than aborting the batch. Returns { simulated: <count> }.
+// real day. Expected "nothing to simulate" cases (RuleViolation, e.g. no
+// participants) are counted as skipped; any OTHER error is logged and reported in
+// `failures` rather than silently swallowed (which once hid a real 500 bug).
+// Returns { simulated, skipped, failed, failures }.
 router.post(
   '/:id/simulate',
   requireAuth,
@@ -712,17 +730,24 @@ router.post(
     const activities = await Activity.find({ eventId: event._id }).sort({ order: 1, _id: 1 });
 
     let simulated = 0;
+    let skipped = 0;
+    const failures = [];
     for (const a of activities) {
       try {
         // eslint-disable-next-line no-await-in-loop
         await simulation.simulate(a);
         simulated += 1;
       } catch (e) {
-        // Skip activities that can't be simulated (e.g. no questions/participants).
+        if (e instanceof RuleViolation) {
+          skipped += 1; // legitimately unsimulatable (e.g. no participants/questions)
+        } else {
+          failures.push({ activityId: idStr(a), title: a.title, error: e.message });
+          console.error(`Event simulate failed for activity ${idStr(a)}:`, e.message);
+        }
       }
     }
 
-    res.json({ simulated });
+    res.json({ simulated, skipped, failed: failures.length, failures });
   })
 );
 
