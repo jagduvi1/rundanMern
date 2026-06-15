@@ -37,6 +37,7 @@ const maintenanceRoute = require('./routes/maintenance');
 const meRoute = require('./routes/me');
 const friendsRoute = require('./routes/friends');
 const invitesRoute = require('./routes/invites');
+const inviteAcceptRoute = require('./routes/inviteAccept');
 
 const app = express();
 // Trust exactly the proxy hops we control (TRUST_PROXY env; default 1 = plain
@@ -136,6 +137,7 @@ app.use('/api/admin', maintenanceRoute);
 app.use('/api/events', eventsRoute);
 app.use('/api/events', eventSocialRoute);
 app.use('/api/events', invitesRoute);
+app.use('/api/invites', inviteAcceptRoute);
 
 // Activity-scoped routers (share the /api/activities base; distinct subpaths).
 app.use('/api/activities', activitiesRoute);

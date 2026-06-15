@@ -1,35 +1,27 @@
 const express = require('express');
-const crypto = require('crypto');
 const mongoose = require('mongoose');
 
-const { Account, User, EventMember, Friendship } = require('../models');
+const { Account, Friendship } = require('../models');
 const { asyncHandler } = require('../middleware/error');
 const { requireAuth } = require('../middleware/auth');
 const { eventManager } = require('../middleware/eventAuth');
-const magicLink = require('../services/magicLink');
 const emailService = require('../services/email');
-const { eventChanged } = require('../socket/emit');
 const env = require('../config/env');
+const invites = require('../services/invites');
 
-// Event invites (mounts at /api/events). A host invites friends — by email, or by
-// picking from their friends list — and each gets a roster identity + a
-// passwordless account + a magic link that logs them in and drops them into the
-// event. They can later "set a password" to keep the account, or just play.
-// Emails are best-effort; the generated links are always returned so the host can
-// copy/share them when no email provider is configured.
+// Event invites (mounts at /api/events). A host invites people by email (or from
+// their friends list). Each invite is a *pending reference* only — no account or
+// roster identity is created here. The invitee gets a link to /invite/<token>
+// where they register (new email) or log in (existing) and are then connected to
+// the event. Emails are best-effort; the links are always returned so the host
+// can copy/share them when email isn't configured (or hasn't sent).
 const router = express.Router();
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
-async function uniqueUsername(email) {
-  const base = (String(email).split('@')[0] || 'player').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
-  let candidate = base.length >= 3 ? base : `player${base}`.slice(0, 20);
-  for (let i = 0; i < 8; i += 1) {
-    // eslint-disable-next-line no-await-in-loop
-    if (!(await Account.exists({ username: candidate }))) return candidate;
-    candidate = `${base.slice(0, 16)}${crypto.randomBytes(2).toString('hex')}`;
-  }
-  return `player${crypto.randomBytes(4).toString('hex')}`;
+function frontendBase() {
+  const raw = env.frontendUrl || 'http://localhost:3000';
+  return raw.split(',')[0].trim().replace(/\/$/, '');
 }
 
 async function sendInviteEmail(email, event, link) {
@@ -40,11 +32,11 @@ async function sendInviteEmail(email, event, link) {
       subject: `You're invited to ${event.name} — ${env.appName}`,
       html: emailService.wrapTemplate({
         title: `You're invited to ${event.name}!`,
-        intro: 'Tap to join and play. Afterwards you can keep an account to save your scores — or just play.',
+        intro: 'Click to register (or log in) and join the event.',
         ctaUrl: link,
-        ctaLabel: 'Join the game',
+        ctaLabel: 'Join the event',
       }),
-      text: `You're invited to ${event.name}: ${link}`,
+      text: `You're invited to ${event.name}. Join here: ${link}`,
     });
     return true;
   } catch (e) {
@@ -53,134 +45,46 @@ async function sendInviteEmail(email, event, link) {
   }
 }
 
-// Add the account's player to the event roster, mint a magic link, email it.
-// Returns { result, rosterChanged }.
-async function inviteAccount(account, user, event) {
-  const upsert = await EventMember.updateOne(
-    { eventId: event._id, userId: user._id },
-    { $setOnInsert: { token: crypto.randomUUID(), isAdmin: false, addedUtc: new Date() } },
-    { upsert: true }
-  );
-  const raw = await magicLink.createMagicLink({
-    accountId: account._id, eventId: event._id, ttlMs: magicLink.INVITE_TTL_MS,
-  });
-  const link = magicLink.magicLinkUrl(raw);
-  const emailed = await sendInviteEmail(account.email, event, link);
-  return {
-    result: { email: account.email, name: user.name, link, emailed, ok: true },
-    rosterChanged: !!upsert.upsertedCount,
-  };
-}
-
-// A roster name that isn't taken yet (User.name is unique). Disambiguates with a
-// numeric suffix so a second person sharing a display name gets their own row.
-async function uniqueRosterName(base) {
-  const clean = (base || 'Player').trim() || 'Player';
-  if (!(await User.exists({ name: clean }))) return clean;
-  for (let i = 2; i < 100; i += 1) {
-    // eslint-disable-next-line no-await-in-loop
-    if (!(await User.exists({ name: `${clean} (${i})` }))) return `${clean} (${i})`;
-  }
-  return `${clean} ${crypto.randomBytes(3).toString('hex')}`;
-}
-
-// Resolve the roster User to link to `account`, enforcing the 1:1 rule: keep an
-// existing link; otherwise reuse a roster person of that name only if no OTHER
-// account already claims them — else mint a distinct roster identity. Prevents
-// two accounts pointing at the same User (and the unique-index violation).
-async function resolveRosterUser(account, preferredName) {
-  if (account.userId) {
-    const existing = await User.findById(account.userId);
-    if (existing) return existing;
-  }
-  const name = preferredName || account.displayName || account.username;
-  let user = await User.findOne({ name });
-  if (user && (await Account.exists({ userId: user._id, _id: { $ne: account._id } }))) {
-    user = null; // already claimed by someone else
-  }
-  if (!user) user = await User.create({ name: await uniqueRosterName(name) });
-  return user;
-}
-
-// Ensure a roster User exists for an account (create + link if missing), never
-// hijacking a roster person already owned by another account.
-async function ensureUser(account, fallbackName) {
-  const user = await resolveRosterUser(account, fallbackName);
-  if (String(account.userId || '') !== String(user._id)) {
-    account.userId = user._id;
-    await account.save();
-  }
-  return user;
-}
-
 // POST /api/events/:id/invites — body { invites?: [{ email, name? }], accountIds?: [friendId] }.
 router.post('/:id/invites', requireAuth, eventManager, asyncHandler(async (req, res) => {
   const event = req.targetEvent;
-  const results = [];
-  let rosterChanged = false;
-
-  // ── Invite by email ──
   const list = Array.isArray(req.body?.invites) ? req.body.invites.slice(0, 50) : [];
-  for (const inv of list) {
-    const email = typeof inv?.email === 'string' ? inv.email.toLowerCase().trim() : '';
-    const name = typeof inv?.name === 'string' ? inv.name.trim().slice(0, 60) : '';
-    if (!EMAIL_RE.test(email)) {
-      results.push({ email: inv?.email || null, ok: false, error: 'Invalid email' });
-      // eslint-disable-next-line no-continue
-      continue;
-    }
-    // eslint-disable-next-line no-await-in-loop
-    let account = await Account.findOne({ email });
-    if (!account) {
-      // eslint-disable-next-line no-await-in-loop
-      const username = await uniqueUsername(email);
-      const personName = name || email.split('@')[0];
-      // eslint-disable-next-line no-await-in-loop
-      account = await Account.create({ username, email, displayName: name || personName, roles: ['user'] });
-      // eslint-disable-next-line no-await-in-loop
-      const user = await ensureUser(account, personName);
-      // eslint-disable-next-line no-await-in-loop
-      const r = await inviteAccount(account, user, event);
-      results.push(r.result);
-      if (r.rosterChanged) rosterChanged = true;
-    } else {
-      // eslint-disable-next-line no-await-in-loop
-      const user = await ensureUser(account, name);
-      // eslint-disable-next-line no-await-in-loop
-      const r = await inviteAccount(account, user, event);
-      results.push(r.result);
-      if (r.rosterChanged) rosterChanged = true;
-    }
-  }
-
-  // ── Invite from friends (by account id; must be a friend of the host) ──
   const accountIds = Array.isArray(req.body?.accountIds) ? req.body.accountIds.slice(0, 50) : [];
+
+  const targets = list.map((i) => ({
+    email: (i?.email || '').toLowerCase().trim(),
+    name: (i?.name || '').trim() || null,
+  }));
+
+  // Friends (by account id) — must actually be the host's friend; resolved to email.
   for (const aid of accountIds) {
-    if (!mongoose.Types.ObjectId.isValid(aid)) {
-      // eslint-disable-next-line no-continue
-      continue;
-    }
+    if (!mongoose.Types.ObjectId.isValid(aid)) continue;
     // eslint-disable-next-line no-await-in-loop
-    if (!(await Friendship.exists({ account: req.user.id, friend: aid }))) {
-      results.push({ accountId: aid, ok: false, error: 'Not a friend' });
-      // eslint-disable-next-line no-continue
-      continue;
-    }
+    if (!(await Friendship.exists({ account: req.user.id, friend: aid }))) continue;
     // eslint-disable-next-line no-await-in-loop
-    const account = await Account.findById(aid);
-    if (!account) {
-      // eslint-disable-next-line no-continue
-      continue;
-    }
-    // eslint-disable-next-line no-await-in-loop
-    const user = await ensureUser(account);
-    // eslint-disable-next-line no-await-in-loop
-    const r = await inviteAccount(account, user, event);
-    results.push({ ...r.result, accountId: String(aid) });
-    if (r.rosterChanged) rosterChanged = true;
+    const acct = await Account.findById(aid).select('email displayName username');
+    if (acct) targets.push({ email: acct.email.toLowerCase(), name: acct.displayName || acct.username });
   }
 
-  if (rosterChanged) eventChanged(event._id);
+  const results = [];
+  const seen = new Set();
+  for (const t of targets) {
+    if (!EMAIL_RE.test(t.email)) {
+      results.push({ email: t.email || null, ok: false, error: 'Invalid email' });
+      continue;
+    }
+    if (seen.has(t.email)) continue;
+    seen.add(t.email);
+    // eslint-disable-next-line no-await-in-loop
+    const raw = await invites.createInvite({
+      email: t.email, eventId: event._id, invitedBy: req.user.id, name: t.name,
+    });
+    const link = `${frontendBase()}/invite/${raw}`;
+    // eslint-disable-next-line no-await-in-loop
+    const emailed = await sendInviteEmail(t.email, event, link);
+    results.push({ email: t.email, name: t.name || t.email.split('@')[0], link, emailed, ok: true });
+  }
+
   res.json({ invited: results, emailEnabled: emailService.isEnabled() });
 }));
 
