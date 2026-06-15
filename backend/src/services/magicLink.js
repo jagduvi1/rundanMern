@@ -7,7 +7,7 @@ const env = require('../config/env');
 // host invites a friend by email — the link both logs them in and lands them in
 // the event). Only the SHA-256 hash is stored; a TTL index purges expired rows.
 
-const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // invites are valid for a week
+const INVITE_TTL_MS = 2 * 24 * 60 * 60 * 1000; // invites valid 2 days (shrinks the interception window)
 const LOGIN_TTL_MS = 15 * 60 * 1000; // a self-requested login link: 15 min
 
 const hash = (t) => crypto.createHash('sha256').update(t).digest('hex');
