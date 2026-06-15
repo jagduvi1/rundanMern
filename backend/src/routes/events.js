@@ -15,11 +15,13 @@ const {
   Event, EventMember, Activity, Participant, Question, EventViewer, User, Account,
 } = require('../models');
 const { ActivityStatus } = require('../constants/enums');
-const { idStr, userDto, activityDto } = require('../services/serializers');
+const { idStr, userDto, accountSummaryDto, activityDto } = require('../services/serializers');
 const { RuleViolation, asyncHandler } = require('../middleware/error');
 const { requireAuth, optionalAuth } = require('../middleware/auth');
-const { canManageEvent, eventManager } = require('../middleware/eventAuth');
+const { canManageEvent, canManageEventAsAccount, eventManager } = require('../middleware/eventAuth');
 const { eventChanged } = require('../socket/emit');
+const env = require('../config/env');
+const emailService = require('../services/email');
 const { uniqueJoinCode } = require('../utils/joinCode');
 const { buildStandings } = require('../services/standings');
 const teams = require('../services/teams');
@@ -87,8 +89,19 @@ async function loadEventDto(event) {
   const estimatedMeters = await estimateRouteMeters(event._id, activities);
   const viewers = await currentViewerNames(event._id);
 
+  // Account owner + co-admins (accounts in event.admins) for the host UI.
+  const ownerAccount = event.owner
+    ? await Account.findById(event.owner).select('username displayName email').lean()
+    : null;
+  const coAdminAccounts = (event.admins || []).length
+    ? await Account.find({ _id: { $in: event.admins } }).select('username displayName email').lean()
+    : [];
+
   return {
     id: idStr(event),
+    ownerId: event.owner ? idStr(event.owner) : null,
+    owner: accountSummaryDto(ownerAccount),
+    coAdmins: coAdminAccounts.map(accountSummaryDto),
     name: event.name,
     description: event.description ?? null,
     imageUrl: event.imageUrl ?? null,
@@ -114,6 +127,18 @@ async function loadEventDto(event) {
     isComplete:
       activityDtos.length > 0 && activityDtos.every((a) => a.status === ActivityStatus.Finished),
   };
+}
+
+// Owner/co-admin details (incl. email addresses) are management-only — strip them
+// for callers who can't manage the event, so the anonymous player welcome list
+// (GET /active) and the player event page never leak host emails. Call right
+// after `dto.canManage` is set.
+function redactManagement(dto) {
+  if (!dto.canManage) {
+    dto.owner = null;
+    dto.coAdmins = [];
+  }
+  return dto;
 }
 
 // Walk the geolocated route in running order — each Tipspromenad's question
@@ -227,6 +252,7 @@ router.get(
     for (const dto of dtos) {
       // eslint-disable-next-line no-await-in-loop
       dto.canManage = await canManageEvent(req, await Event.findById(dto.id));
+      redactManagement(dto);
     }
     res.json(dtos);
   })
@@ -243,6 +269,7 @@ router.get(
     for (const dto of active) {
       // eslint-disable-next-line no-await-in-loop
       dto.canManage = await canManageEvent(req, await Event.findById(dto.id));
+      redactManagement(dto);
     }
     res.json(active);
   })
@@ -439,6 +466,17 @@ router.put(
     const wanted = new Set(realUsers.map((u) => idStr(u)));
     const admins = new Set(adminUserIds.map((id) => String(id)));
 
+    // Last-admin guard: an event with no account owner and no account co-admins is
+    // managed solely through its roster member-admins. Refuse a change that would
+    // strip the final admin and leave it manageable only by a global super-admin.
+    const hasAccountBackstop = !!event.owner || (event.admins || []).length > 0;
+    const resultingMemberAdmins = [...wanted].filter((uid) => admins.has(uid)).length;
+    if (!hasAccountBackstop && resultingMemberAdmins === 0) {
+      throw new RuleViolation(
+        'You must keep at least one admin (or set an event owner) — assign an admin before removing the last one.'
+      );
+    }
+
     const current = await EventMember.find({ eventId: event._id });
     const currentIds = new Set(current.map((m) => idStr(m.userId)));
 
@@ -474,6 +512,104 @@ router.put(
 
     const dto = await loadEventDto(event);
     dto.canManage = true;
+    res.json(dto);
+  })
+);
+
+// ── Account co-admins (event.admins) ──────────────────────────────────────────
+// Distinct from the roster EventMember admins above: these are full Accounts
+// promoted to co-host an event, so the event is shared and any of them can manage
+// it after logging in (canManageEvent honours event.admins). Any current manager
+// may add/remove co-admins; the owner can never be removed.
+const ADMIN_EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+async function sendCoAdminEmail(account, event) {
+  if (!emailService.isEnabled() || !account.email) return false;
+  try {
+    const base = (env.frontendUrl || '').split(',')[0].trim().replace(/\/$/, '');
+    const url = base ? `${base}/e/${idStr(event)}` : null;
+    await emailService.send({
+      to: account.email,
+      subject: `You're now a co-host of ${event.name} — ${env.appName}`,
+      html: emailService.wrapTemplate({
+        title: `You're a co-host of ${event.name}`,
+        intro: 'You have been given admin access to this event. Log in to manage its games.',
+        ctaUrl: url || undefined,
+        ctaLabel: 'Open the event',
+      }),
+      text: `You're now a co-host of ${event.name}.${url ? ` ${url}` : ''}`,
+    });
+    return true;
+  } catch (e) {
+    console.error('Co-admin mail failed:', e.message);
+    return false;
+  }
+}
+
+// POST /api/events/:id/admins — body { email }. Promote an existing account
+// (matched by email) to event co-admin. 404 if no such account (they must
+// register first). Idempotent; best-effort notification email.
+router.post(
+  '/:id/admins',
+  requireAuth,
+  eventManager,
+  asyncHandler(async (req, res) => {
+    const event = req.targetEvent;
+    // Managing the co-admin list requires being an account owner/admin (or
+    // super-admin) — a delegated member token is not enough to grant durable rights.
+    if (!canManageEventAsAccount(req, event)) {
+      throw new RuleViolation('Only the event owner or an account admin can manage co-admins.', 403);
+    }
+    const email = typeof req.body?.email === 'string' ? req.body.email.toLowerCase().trim() : '';
+    if (!ADMIN_EMAIL_RE.test(email)) throw new RuleViolation('Enter a valid email address.');
+
+    const account = await Account.findOne({ email });
+    if (!account) {
+      throw new RuleViolation('No account with that email. Ask them to create an account first.', 404);
+    }
+    if (event.owner && String(event.owner) === String(account._id)) {
+      throw new RuleViolation('That person already owns the event.');
+    }
+
+    const already = (event.admins || []).some((a) => String(a) === String(account._id));
+    if (!already) {
+      event.admins.push(account._id);
+      await event.save();
+      await sendCoAdminEmail(account, event);
+      eventChanged(idStr(event));
+    }
+
+    const dto = await loadEventDto(event);
+    dto.canManage = true;
+    res.json(dto);
+  })
+);
+
+// DELETE /api/events/:id/admins/:accountId — demote a co-admin. The owner can
+// never be removed. Any manager may remove (including themselves).
+router.delete(
+  '/:id/admins/:accountId',
+  requireAuth,
+  eventManager,
+  asyncHandler(async (req, res) => {
+    const event = req.targetEvent;
+    if (!canManageEventAsAccount(req, event)) {
+      throw new RuleViolation('Only the event owner or an account admin can manage co-admins.', 403);
+    }
+    const { accountId } = req.params;
+    if (event.owner && String(event.owner) === String(accountId)) {
+      throw new RuleViolation('The owner cannot be removed.');
+    }
+
+    const before = (event.admins || []).length;
+    event.admins = (event.admins || []).filter((a) => String(a) !== String(accountId));
+    if (event.admins.length !== before) {
+      await event.save();
+      eventChanged(idStr(event));
+    }
+
+    const dto = await loadEventDto(event);
+    dto.canManage = await canManageEvent(req, event);
     res.json(dto);
   })
 );
@@ -667,6 +803,7 @@ router.get(
     const dto = await loadEventDto(event);
     dto.pendingSlap = await computePendingSlap(event);
     dto.canManage = await canManageEvent(req, event);
+    redactManagement(dto);
     return res.json(dto);
   })
 );
@@ -684,6 +821,7 @@ router.get(
     const dto = await loadEventDto(event);
     dto.pendingSlap = await computePendingSlap(event);
     dto.canManage = await canManageEvent(req, event);
+    redactManagement(dto);
     return res.json(dto);
   })
 );
@@ -717,6 +855,21 @@ router.post(
     let name = (req.body?.displayName ?? '').toString().trim();
     if (name.length === 0) throw new RuleViolation('Enter a name to join with.');
     if (name.length > 60) name = name.slice(0, 60);
+
+    // A person already on the roster must claim their identity ("Play as me"),
+    // not free-name join — otherwise they'd be double-listed (team row + solo row).
+    const rosterMembers = await EventMember.find({ eventId: event._id })
+      .populate('userId', 'name')
+      .lean();
+    const onRoster = rosterMembers.some(
+      (m) => m.userId && (m.userId.name || '').toLowerCase() === name.toLowerCase()
+    );
+    if (onRoster) {
+      throw new RuleViolation(
+        'You are on the roster for this event — open it and choose "Play as me" to join.',
+        409
+      );
+    }
 
     const joinable = (
       await Activity.find({

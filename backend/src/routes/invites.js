@@ -72,12 +72,41 @@ async function inviteAccount(account, user, event) {
   };
 }
 
-// Ensure a roster User exists for an account (create + link if missing).
+// A roster name that isn't taken yet (User.name is unique). Disambiguates with a
+// numeric suffix so a second person sharing a display name gets their own row.
+async function uniqueRosterName(base) {
+  const clean = (base || 'Player').trim() || 'Player';
+  if (!(await User.exists({ name: clean }))) return clean;
+  for (let i = 2; i < 100; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    if (!(await User.exists({ name: `${clean} (${i})` }))) return `${clean} (${i})`;
+  }
+  return `${clean} ${crypto.randomBytes(3).toString('hex')}`;
+}
+
+// Resolve the roster User to link to `account`, enforcing the 1:1 rule: keep an
+// existing link; otherwise reuse a roster person of that name only if no OTHER
+// account already claims them — else mint a distinct roster identity. Prevents
+// two accounts pointing at the same User (and the unique-index violation).
+async function resolveRosterUser(account, preferredName) {
+  if (account.userId) {
+    const existing = await User.findById(account.userId);
+    if (existing) return existing;
+  }
+  const name = preferredName || account.displayName || account.username;
+  let user = await User.findOne({ name });
+  if (user && (await Account.exists({ userId: user._id, _id: { $ne: account._id } }))) {
+    user = null; // already claimed by someone else
+  }
+  if (!user) user = await User.create({ name: await uniqueRosterName(name) });
+  return user;
+}
+
+// Ensure a roster User exists for an account (create + link if missing), never
+// hijacking a roster person already owned by another account.
 async function ensureUser(account, fallbackName) {
-  let user = account.userId ? await User.findById(account.userId) : null;
-  if (!user) {
-    const name = fallbackName || account.displayName || account.username;
-    user = (await User.findOne({ name })) || (await User.create({ name }));
+  const user = await resolveRosterUser(account, fallbackName);
+  if (String(account.userId || '') !== String(user._id)) {
     account.userId = user._id;
     await account.save();
   }
@@ -107,9 +136,9 @@ router.post('/:id/invites', requireAuth, eventManager, asyncHandler(async (req, 
       const username = await uniqueUsername(email);
       const personName = name || email.split('@')[0];
       // eslint-disable-next-line no-await-in-loop
-      const user = (await User.findOne({ name: personName })) || (await User.create({ name: personName }));
+      account = await Account.create({ username, email, displayName: name || personName, roles: ['user'] });
       // eslint-disable-next-line no-await-in-loop
-      account = await Account.create({ username, email, displayName: name || user.name, roles: ['user'], userId: user._id });
+      const user = await ensureUser(account, personName);
       // eslint-disable-next-line no-await-in-loop
       const r = await inviteAccount(account, user, event);
       results.push(r.result);

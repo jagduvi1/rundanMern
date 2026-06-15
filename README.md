@@ -104,7 +104,7 @@ activities, then share the join code. The question library seeds automatically o
 
 See [`.env.example`](.env.example). Required: `JWT_SECRET`. Optional integrations degrade gracefully
 when unset: Spotify (`SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET`), Last.fm (`LASTFM_API_KEY`),
-Web Push (`VAPID_*`), email (`RESEND_API_KEY`), shared site gate (`ACCESS_CODE`).
+Web Push (`VAPID_*`), email (`MAILERSEND_API_KEY`), shared site gate (`ACCESS_CODE`).
 
 ## Notes on the port
 

@@ -39,7 +39,8 @@ const accountSchema = new mongoose.Schema({
   },
   // Links this login to its persistent roster identity (the named person whose
   // scores accumulate across events). Set when an account plays as themselves.
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true, sparse: true },
+  // Enforced 1:1 by the partial unique index below (one account per roster User).
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   // Shareable code for the friends feature. Lazy-generated on first request;
   // sparse so the many not-yet-generated accounts don't collide on null.
   friendCode: { type: String, unique: true, sparse: true, index: true },
@@ -59,6 +60,14 @@ const accountSchema = new mongoose.Schema({
   ageConsent: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },
 });
+
+// A roster User belongs to at most one Account. Partial filter so the many
+// accounts with no link (userId: null) don't collide — only real ObjectId links
+// are constrained to be unique.
+accountSchema.index(
+  { userId: 1 },
+  { name: 'userId_unique', unique: true, partialFilterExpression: { userId: { $type: 'objectId' } } }
+);
 
 accountSchema.pre('save', async function hashPassword(next) {
   // Skip when unchanged or passwordless (invited accounts).

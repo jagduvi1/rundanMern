@@ -40,11 +40,30 @@ async function canManageEvent(req, event) {
   return false;
 }
 
+// Account-only management check (no member token) — for granting/revoking
+// durable account co-admins: super-admin, the event owner, or an existing
+// account co-admin. A delegated x-rundan-member token is deliberately NOT enough.
+function canManageEventAsAccount(req, event) {
+  if (req.user?.roles?.includes('admin')) return true;
+  if (!event) return false;
+  const uid = req.user?.id ? String(req.user.id) : null;
+  if (!uid) return false;
+  if (event.owner && String(event.owner) === uid) return true;
+  return (event.admins || []).some((a) => String(a) === uid);
+}
+
 // Activity-scoped: resolve to its event and delegate. Standalone activities
-// (no eventId) fall into the "no event context" branch.
+// (no eventId) are governed by their own `owner` (the account that created them):
+// super-admin or that owner may manage; activities with no recorded owner
+// (legacy/seeded) fall back to the dev-open rule.
 async function canManageActivity(req, activity) {
   if (!activity) return false;
-  if (!activity.eventId) return canManageEvent(req, null);
+  if (!activity.eventId) {
+    if (req.user?.roles?.includes('admin')) return true;
+    const uid = req.user?.id ? String(req.user.id) : null;
+    if (activity.owner) return !!uid && String(activity.owner) === uid;
+    return !!req.user || !env.isProd; // legacy/seeded: no owner recorded
+  }
   const event = await Event.findById(activity.eventId);
   return canManageEvent(req, event);
 }
@@ -93,6 +112,7 @@ const activityManager = asyncHandler(async (req, res, next) => {
 
 module.exports = {
   canManageEvent,
+  canManageEventAsAccount,
   canManageActivity,
   canUpload,
   resolveMemberUserId,

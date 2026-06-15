@@ -146,6 +146,7 @@ router.post('/', optionalAuth, asyncHandler(async (req, res) => {
 
   const activity = await Activity.create({
     eventId,
+    owner: req.user?.id || null,
     order,
     type,
     title,
