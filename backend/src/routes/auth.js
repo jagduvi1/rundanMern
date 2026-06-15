@@ -316,6 +316,22 @@ router.post('/verify-email', authLimiter, async (req, res) => {
   }
 });
 
+// POST /api/auth/resend-verification — re-send the "confirm your email" mail to
+// the logged-in account. No-op ack if already verified; rate-limited per IP.
+router.post('/resend-verification', requireAuth, emailLimiter, async (req, res) => {
+  try {
+    const account = await Account.findById(req.user.id);
+    if (!account) return res.status(404).json({ error: 'Account not found.' });
+    if (account.emailVerified) return res.json({ message: 'Email already verified.', verified: true });
+    if (!emailService.isEnabled()) return res.status(503).json({ error: 'Email is not configured.' });
+    await sendVerifyEmail(account);
+    res.json({ message: 'Verification email sent.' });
+  } catch (err) {
+    console.error('Resend verification failed:', err.message);
+    res.status(500).json({ error: 'Could not send the verification email.' });
+  }
+});
+
 router.post('/forgot-password', emailLimiter, async (req, res) => {
   const ack = { message: 'If the account exists, a reset link is on its way.' };
   try {
