@@ -1116,6 +1116,18 @@ router.post(
       }
     }
 
+    // Optional explicit "this is me" link: a logged-in account with no roster
+    // identity yet may adopt the claimed roster person (only if no other account
+    // owns it). NEVER for an admin or PIN-protected member — otherwise a one-time
+    // PIN would become a permanent PIN-free admin claim ("play as me" skips the PIN
+    // for your own linked identity), defeating the P0 takeover protection. Those
+    // identities are linked only via an explicit, host-mediated invite designation.
+    if (req.body?.link === true && req.user && !ownUserId
+        && !member.isAdmin && !member.claimPin) {
+      const taken = await Account.exists({ userId, _id: { $ne: req.user.id } });
+      if (!taken) await Account.updateOne({ _id: req.user.id }, { $set: { userId } });
+    }
+
     const joinable = (
       await Activity.find({
         eventId: event._id,
