@@ -84,7 +84,7 @@ export default function Event() {
   const navigate = useNavigate();
   const { toast, show } = useToast();
   const { hasWebPush } = useBootstrap();
-  const { user } = useAuth();
+  const { user, patchUser } = useAuth();
 
   const [event, setEvent] = useState(null);
   const [standings, setStandings] = useState(null);
@@ -109,6 +109,7 @@ export default function Event() {
   const [shareOpen, setShareOpen] = useState(false); // QR/share modal (render-only)
   const [pinFor, setPinFor] = useState(null); // roster member awaiting a claim PIN
   const [pinInput, setPinInput] = useState('');
+  const [linkMe, setLinkMe] = useState(false); // opt-in: link account to the picked roster person
 
   const eventRef = useRef(null);
   eventRef.current = event;
@@ -347,13 +348,16 @@ export default function Event() {
   // ── Player actions ──────────────────────────────────────────────────────────
   // `pin` is required for PIN-protected roster members (admins + any the host
   // protected) unless this is the caller's own logged-in identity.
-  const claim = async (userId, pin) => {
+  const claim = async (userId, pin, link) => {
     setBusy(true);
     try {
-      const res = await claimEvent(event.joinCode, userId, pin);
+      const res = await claimEvent(event.joinCode, userId, pin, link);
       persistClaim(id, res);
       setEventName(res.displayName);
       setPinFor(null);
+      // If we asked to link and it bound, reflect it so the "is this me" prompt
+      // stops showing and link stops being offered.
+      if (link && res.userId && user && !user.userId) patchUser({ userId: res.userId });
       await refreshStandings();
       await reload();
     } catch (err) {
@@ -800,7 +804,14 @@ export default function Event() {
           {user ? (
             <button type="button" className="btn block" onClick={claimAsMe} disabled={busy}>Spela som mig ({user.displayName || user.username})</button>
           ) : null}
+          {user && !user.userId ? (
+            <label className="row small" style={{ gap: 6, alignItems: 'center' }}>
+              <input type="checkbox" style={{ width: 'auto', minHeight: 'auto' }} checked={linkMe} onChange={(e) => setLinkMe(e.target.checked)} />
+              Det här är jag — koppla mitt konto till spelaren jag väljer
+            </label>
+          ) : null}
           {(event.members || []).map((m) => {
+            const link = user && !user.userId ? linkMe : undefined;
             if (m.needsPin && pinFor?.id === m.id) {
               return (
                 <div key={m.id} className="row" style={{ gap: 6 }}>
@@ -818,7 +829,7 @@ export default function Event() {
             return (
               <button
                 key={m.id} type="button" className="btn block ghost" disabled={busy}
-                onClick={() => (m.needsPin ? (setPinFor(m), setPinInput('')) : claim(m.id))}
+                onClick={() => (m.needsPin ? (setPinFor(m), setPinInput('')) : claim(m.id, undefined, link))}
               >
                 {m.needsPin ? '🔒 ' : ''}{m.name}
               </button>
@@ -885,6 +896,7 @@ export default function Event() {
           eventId={id}
           shareUrl={shareUrl}
           joinCode={event.joinCode}
+          members={(event.members || []).filter((m) => !(event.adminUserIds || []).includes(m.id))}
           onToast={show}
           onReload={reload}
           onShare={() => setShareOpen(true)}
@@ -1533,7 +1545,7 @@ function HostControls({
 // always returned (copyable) so the host can share them when email is off.
 // Surfaces emailEnabled + a per-link QR, plus a "share the code" affordance for
 // anonymous joiners. Logic (ensureFriends/send/parseEmails) is unchanged.
-function InviteFriends({ eventId, shareUrl, joinCode, onToast, onReload, onShare, onCopy, anyBusy }) {
+function InviteFriends({ eventId, shareUrl, joinCode, members = [], onToast, onReload, onShare, onCopy, anyBusy }) {
   const [emails, setEmails] = useState('');
   const [friends, setFriends] = useState(null);
   const [friendsError, setFriendsError] = useState(null);
@@ -1542,6 +1554,8 @@ function InviteFriends({ eventId, shareUrl, joinCode, onToast, onReload, onShare
   const [results, setResults] = useState(null);
   const [emailEnabled, setEmailEnabled] = useState(true);
   const [qrUrl, setQrUrl] = useState(null);
+  const [linkUserId, setLinkUserId] = useState(''); // designate this invite for a roster person
+  const [linkEmail, setLinkEmail] = useState('');
 
   // Load the host's friends. The section is always open now, so load on mount
   // (the same lazy-once guard as before — calls the unchanged loader).
@@ -1565,7 +1579,21 @@ function InviteFriends({ eventId, shareUrl, joinCode, onToast, onReload, onShare
       .map((email) => ({ email }));
 
   const send = async () => {
-    const invites = parseEmails();
+    // A half-filled designation (one of player/email) is a mistake — don't drop it silently.
+    if ((linkUserId ? 1 : 0) + (linkEmail.trim() ? 1 : 0) === 1) {
+      onToast?.('Välj både rosterspelare och e-post för en kopplad inbjudan.');
+      return;
+    }
+    let invites = parseEmails();
+    // A roster-designated invite: the invitee becomes THIS roster person on accept.
+    if (linkUserId && linkEmail.trim()) {
+      const email = linkEmail.trim().toLowerCase();
+      // Drop any plain textarea entry for the same address so the designation wins
+      // (the backend dedupes by email, keeping the first occurrence).
+      invites = invites.filter((i) => i.email.toLowerCase() !== email);
+      const m = members.find((x) => x.id === linkUserId);
+      invites.unshift({ email: linkEmail.trim(), userId: linkUserId, name: m?.name });
+    }
     const accountIds = [...selected];
     if (invites.length === 0 && accountIds.length === 0) {
       onToast?.('Lägg till minst en e-post eller välj en vän.');
@@ -1578,6 +1606,8 @@ function InviteFriends({ eventId, shareUrl, joinCode, onToast, onReload, onShare
       setEmailEnabled(!!res.emailEnabled);
       setEmails('');
       setSelected(new Set());
+      setLinkUserId('');
+      setLinkEmail('');
       await onReload?.();
     } catch (err) {
       onToast?.(err?.message || 'Kunde inte skicka inbjudningar.');
@@ -1622,6 +1652,28 @@ function InviteFriends({ eventId, shareUrl, joinCode, onToast, onReload, onShare
           />
           <p className="muted small" style={{ margin: '4px 0 0' }}>Separera med komma eller radbrytning.</p>
         </div>
+
+        {/* Designate a roster player (links their login to the right identity) */}
+        {members.length > 0 ? (
+          <div className="stack" style={{ gap: 6 }}>
+            <b>Bjud in en rosterspelare</b>
+            <p className="muted small" style={{ margin: 0 }}>
+              Koppla en inbjudan till en spelare i rostret — när de skapar ett konto blir de
+              <b> den</b> spelaren (samma poäng, inga dubbletter).
+            </p>
+            <div className="row wrap" style={{ gap: 6 }}>
+              <select value={linkUserId} onChange={(e) => setLinkUserId(e.target.value)} className="grow">
+                <option value="">Välj rosterspelare…</option>
+                {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+              <input
+                type="email" placeholder="deras@e-post.se"
+                value={linkEmail} onChange={(e) => setLinkEmail(e.target.value)}
+                style={{ minWidth: 160 }}
+              />
+            </div>
+          </div>
+        ) : null}
 
         {/* From friends */}
         <div className="stack" style={{ gap: 6 }}>

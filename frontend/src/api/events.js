@@ -39,8 +39,12 @@ export const joinEvent = (code, displayName) =>
   apiPost(`/events/by-code/${code}/join`, { displayName });
 // claim a roster identity; `pin` is required for PIN-protected members (admins +
 // any the host protected) unless you're claiming your OWN logged-in identity.
-export const claimEvent = (code, userId, pin) =>
-  apiPost(`/events/by-code/${code}/claim`, pin ? { userId, pin } : { userId });
+// `link:true` (a logged-in account with no roster identity yet) adopts the claimed
+// roster person as its own — an explicit, confirmed account↔roster link.
+export const claimEvent = (code, userId, pin, link) =>
+  apiPost(`/events/by-code/${code}/claim`, {
+    userId, ...(pin ? { pin } : {}), ...(link ? { link: true } : {}),
+  });
 // "Spela som mig": a logged-in account claims its OWN linked roster identity —
 // userId is omitted so the backend resolves it from the account.
 export const claimEventAsMe = (code) =>

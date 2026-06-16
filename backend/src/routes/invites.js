@@ -1,7 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 
-const { Account, Friendship } = require('../models');
+const { Account, Friendship, EventMember } = require('../models');
 const { asyncHandler } = require('../middleware/error');
 const { requireAuth } = require('../middleware/auth');
 const { eventManager } = require('../middleware/eventAuth');
@@ -54,7 +54,24 @@ router.post('/:id/invites', requireAuth, eventManager, asyncHandler(async (req, 
   const targets = list.map((i) => ({
     email: (i?.email || '').toLowerCase().trim(),
     name: (i?.name || '').trim() || null,
+    // Optional roster designation: the invitee becomes THIS roster person.
+    userId: (typeof i?.userId === 'string' && mongoose.Types.ObjectId.isValid(i.userId))
+      ? i.userId : null,
   }));
+
+  // Only honor a designation that points at an actual NON-ADMIN roster member of
+  // THIS event. Admin (co-host) identities are never granted by an email invite —
+  // that would silently confer co-host on whoever controls the address; promote
+  // co-hosts explicitly via /admins instead.
+  const designated = targets.map((t) => t.userId).filter(Boolean);
+  const validDesignations = designated.length
+    ? new Set((await EventMember.find({
+      eventId: event._id, userId: { $in: designated }, isAdmin: false,
+    }).select('userId').lean()).map((m) => String(m.userId)))
+    : new Set();
+  for (const t of targets) {
+    if (t.userId && !validDesignations.has(String(t.userId))) t.userId = null;
+  }
 
   // Friends (by account id) — must actually be the host's friend; resolved to email.
   for (const aid of accountIds) {
@@ -77,7 +94,7 @@ router.post('/:id/invites', requireAuth, eventManager, asyncHandler(async (req, 
     seen.add(t.email);
     // eslint-disable-next-line no-await-in-loop
     const raw = await invites.createInvite({
-      email: t.email, eventId: event._id, invitedBy: req.user.id, name: t.name,
+      email: t.email, eventId: event._id, invitedBy: req.user.id, name: t.name, userId: t.userId,
     });
     const link = `${frontendBase()}/invite/${raw}`;
     // eslint-disable-next-line no-await-in-loop
