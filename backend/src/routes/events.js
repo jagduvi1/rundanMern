@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 
 // EventEndpoints (/api/events) — the MERN port of rundan's EventEndpoints.cs
 // (the core subset: create/list/get/update/delete, by-code lookup, members,
@@ -595,6 +596,29 @@ router.put(
     await member.save();
     eventChanged(idStr(event));
     res.json({ userId: idStr(member.userId), needsPin: !!member.claimPin, pin: member.claimPin });
+  })
+);
+
+// POST /api/events/:id/members/:userId/revoke — regenerate a member's device token
+// (x-rundan-member), signing out their current device (they must re-claim/re-scan).
+// Lets a host evict a lost/shared/leaked device without removing the roster entry.
+// Manager-gated. 204.
+router.post(
+  '/:id/members/:userId/revoke',
+  requireAuth,
+  eventManager,
+  asyncHandler(async (req, res) => {
+    const event = req.targetEvent;
+    const member = await EventMember.findOne({ eventId: event._id, userId: req.params.userId });
+    if (!member) throw new RuleViolation("That player isn't on this event's roster.", 404);
+    member.token = crypto.randomUUID();
+    // Also ensure a claim PIN — otherwise the rotated-out device would just
+    // silently re-claim (PIN-less) on its next load and re-authenticate itself,
+    // defeating the revoke. With a PIN, re-entry requires the host's PIN/QR.
+    if (!member.claimPin) member.claimPin = randomCode(6);
+    await member.save();
+    eventChanged(idStr(event));
+    res.json({ ok: true, pin: member.claimPin });
   })
 );
 

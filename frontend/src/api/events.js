@@ -33,6 +33,9 @@ export const arrive = (id, lat, lng) => apiPost(`/events/${id}/arrive`, { lat, l
 // Set / clear / generate a roster member's claim PIN (manager only).
 export const setMemberPin = (id, userId, body) =>
   apiPut(`/events/${id}/members/${userId}/pin`, body, { eventId: id });
+// Revoke a member's device token (sign them out; they must re-claim). Manager only.
+export const revokeMember = (id, userId) =>
+  apiPost(`/events/${id}/members/${userId}/revoke`, {}, { eventId: id });
 
 // Joining an event (by code). join = free-name; claim = pick a roster identity.
 export const joinEvent = (code, displayName) =>

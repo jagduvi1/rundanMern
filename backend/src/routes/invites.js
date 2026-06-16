@@ -80,7 +80,13 @@ router.post('/:id/invites', requireAuth, eventManager, asyncHandler(async (req, 
     if (!(await Friendship.exists({ account: req.user.id, friend: aid }))) continue;
     // eslint-disable-next-line no-await-in-loop
     const acct = await Account.findById(aid).select('email displayName username');
-    if (acct) targets.push({ email: acct.email.toLowerCase(), name: acct.displayName || acct.username });
+    // fromFriend → don't echo the friend's private email back to the host (the host
+    // supplied an account id, not the address); the name + link are enough.
+    if (acct) {
+      targets.push({
+        email: acct.email.toLowerCase(), name: acct.displayName || acct.username, fromFriend: true,
+      });
+    }
   }
 
   const results = [];
@@ -99,7 +105,11 @@ router.post('/:id/invites', requireAuth, eventManager, asyncHandler(async (req, 
     const link = `${frontendBase()}/invite/${raw}`;
     // eslint-disable-next-line no-await-in-loop
     const emailed = await sendInviteEmail(t.email, event, link);
-    results.push({ email: t.email, name: t.name || t.email.split('@')[0], link, emailed, ok: true });
+    results.push({
+      email: t.fromFriend ? null : t.email,
+      name: t.name || t.email.split('@')[0],
+      link, emailed, ok: true,
+    });
   }
 
   res.json({ invited: results, emailEnabled: emailService.isEnabled() });

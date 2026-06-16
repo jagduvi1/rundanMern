@@ -25,8 +25,13 @@ router.get('/:token', asyncHandler(async (req, res) => {
     ? await User.findById(invite.userId).select('name').lean()
     : null;
   const hasAccount = !!(await Account.exists({ email: invite.email }));
+  // Don't echo the address back to the INVITER (who may have invited a friend by
+  // account id and shouldn't harvest their email via this public context route);
+  // the actual invitee (a different session) still gets it to drive the accept UI.
+  const isInviter = req.user && invite.invitedBy
+    && String(req.user.id) === String(invite.invitedBy);
   return res.json({
-    email: invite.email,
+    email: isInviter ? null : invite.email,
     eventId: idStr(invite.eventId),
     eventName: event.name,
     invitedByName: inviter ? (inviter.displayName || inviter.username) : null,

@@ -1,6 +1,8 @@
 # Design proposal — consolidated invite & identity model
 
-Status: **proposal / for review**
+Status: **P0 + P1 + P2 implemented** (PRs stacked). Deferred from P2 (documented
+below): member-token hashing-at-rest, full friends consent model, canUpload
+event-scoping.
 Scope: how people are invited, added, and join an event; how a login connects to a
 roster person; how management authority is granted. Grounded in the audit of the
 current code (5 mechanisms, 35 confirmed findings: 3 critical, 2 high, 5 medium).
