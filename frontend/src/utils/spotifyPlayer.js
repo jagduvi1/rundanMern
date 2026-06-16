@@ -160,6 +160,23 @@ export function useSpotifyPlayer(connectionId) {
     [getToken],
   );
 
+  // Unlock audio for autoplay-restricted browsers (Chrome/Safari/mobile). The SDK
+  // requires activateElement() to run inside a USER GESTURE (a click) before the
+  // first play(); otherwise the device reports ready and the Web API play call
+  // returns 204, but NO audio plays. Call this synchronously at the top of the
+  // "Starta"/"▶ Spela" click handlers, before any await.
+  const activate = useCallback(() => {
+    const { player } = ref.current;
+    if (player && typeof player.activateElement === 'function') {
+      try {
+        return player.activateElement();
+      } catch {
+        /* ignore — older SDK or already activated */
+      }
+    }
+    return undefined;
+  }, []);
+
   const pause = useCallback(() => {
     const { player } = ref.current;
     if (player) {
@@ -184,5 +201,5 @@ export function useSpotifyPlayer(connectionId) {
     return undefined;
   }, []);
 
-  return { ready, deviceId, error, play, pause, resume };
+  return { ready, deviceId, error, play, pause, resume, activate };
 }

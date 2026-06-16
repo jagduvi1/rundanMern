@@ -9,7 +9,7 @@ import Spinner from './Spinner';
 
 export default function HitsterHostPanel({ activity }) {
   const canPlayInApp = activity?.spotifyConnectionId != null;
-  const { ready, play, pause, resume } = useSpotifyPlayer(activity?.spotifyConnectionId || null);
+  const { ready, play, pause, resume, activate } = useSpotifyPlayer(activity?.spotifyConnectionId || null);
 
   const [state, setState] = useState(null);
   const [tracks, setTracks] = useState([]);
@@ -85,6 +85,8 @@ export default function HitsterHostPanel({ activity }) {
   }
 
   async function doStartTrack(questionId, spotifyUrl) {
+    // Unlock audio within this click gesture before any await (autoplay policy).
+    if (canPlayInApp) activate();
     setBusy(true);
     try {
       await startTrack(activity.id, questionId);
