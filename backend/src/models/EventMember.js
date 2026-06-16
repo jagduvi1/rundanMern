@@ -10,6 +10,12 @@ const eventMemberSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   token: { type: String, required: true, unique: true, default: () => crypto.randomUUID() },
   isAdmin: { type: Boolean, default: false },
+  // Optional claim PIN: when set, claiming THIS roster identity by code (i.e. not
+  // via your own logged-in account) requires the PIN, so a guest can't tap an
+  // admin's name and receive its co-host token. Admins are ALWAYS protected (a PIN
+  // is auto-generated); the host may also set one on any other member. Visible only
+  // to managers (DTO strips it for everyone else) + delivered via a per-member QR.
+  claimPin: { type: String, default: null, maxlength: 16 },
   addedUtc: { type: Date, default: Date.now },
 });
 

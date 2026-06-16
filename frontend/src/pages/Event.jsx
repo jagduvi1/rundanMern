@@ -17,7 +17,7 @@ import {
   getEvent, getStandings, getTeams, reshuffleTeams, setMembers, updateEvent,
   setEventCode, reorderActivities, setActivitiesStatus, arrive, joinEvent, claimEvent,
   claimEventAsMe, addEventAdmin, removeEventAdmin, deleteEvent,
-  addActivityFromLibrary, restartEvent,
+  addActivityFromLibrary, restartEvent, setMemberPin,
 } from '../api/events';
 import { inviteToEvent } from '../api/invites';
 import { getFriends } from '../api/me';
@@ -107,11 +107,14 @@ export default function Event() {
   const [infoOpen, setInfoOpen] = useState(true);
   const [arrivedId, setArrivedId] = useState(null);
   const [shareOpen, setShareOpen] = useState(false); // QR/share modal (render-only)
+  const [pinFor, setPinFor] = useState(null); // roster member awaiting a claim PIN
+  const [pinInput, setPinInput] = useState('');
 
   const eventRef = useRef(null);
   eventRef.current = event;
   const seenInsideRef = useRef(new Set());
   const lastArrivalPostRef = useRef(0);
+  const autoClaimedRef = useRef(false); // QR deep-link claim runs once
 
   useDocumentTitle(`${event?.name || 'Evenemang'} · Rundan`);
 
@@ -342,12 +345,15 @@ export default function Event() {
   }, [coords, event]);
 
   // ── Player actions ──────────────────────────────────────────────────────────
-  const claim = async (userId) => {
+  // `pin` is required for PIN-protected roster members (admins + any the host
+  // protected) unless this is the caller's own logged-in identity.
+  const claim = async (userId, pin) => {
     setBusy(true);
     try {
-      const res = await claimEvent(event.joinCode, userId);
+      const res = await claimEvent(event.joinCode, userId, pin);
       persistClaim(id, res);
       setEventName(res.displayName);
+      setPinFor(null);
       await refreshStandings();
       await reload();
     } catch (err) {
@@ -357,6 +363,20 @@ export default function Event() {
     }
   };
 
+  // QR deep-link: /e/:id?claimUser=<userId>&pin=<pin> — the host hands a member a QR
+  // that, scanned, claims THAT roster identity automatically; then strip the secret
+  // params from the URL. Runs once after the event has loaded.
+  useEffect(() => {
+    if (!event || autoClaimedRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const claimUser = params.get('claimUser');
+    if (!claimUser) return;
+    autoClaimedRef.current = true;
+    const pin = params.get('pin') || undefined;
+    claim(claimUser, pin).finally(() => navigate(`/e/${id}`, { replace: true }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event]);
+
   // "Spela för en spelare" (host proxy) — take over a roster player whose phone
   // died: claim THEM (their per-activity tokens + member token persist to this
   // device), remember it as the active proxy, then hard-reload so every page
@@ -364,7 +384,8 @@ export default function Event() {
   const playAs = async (m) => {
     setBusy(true);
     try {
-      const res = await claimEvent(event.joinCode, m.id);
+      // The host holds the PINs (manager), so a protected member can be proxied.
+      const res = await claimEvent(event.joinCode, m.id, m.pin);
       // OVERLAY ONLY — store the proxied identity + per-activity tokens in the proxy
       // object; do NOT persistClaim (that would overwrite the host's own device
       // session/member keys and leak after Stop). The client token getters read
@@ -779,9 +800,30 @@ export default function Event() {
           {user ? (
             <button type="button" className="btn block" onClick={claimAsMe} disabled={busy}>Spela som mig ({user.displayName || user.username})</button>
           ) : null}
-          {(event.members || []).map((m) => (
-            <button key={m.id} type="button" className="btn block ghost" onClick={() => claim(m.id)} disabled={busy}>{m.name}</button>
-          ))}
+          {(event.members || []).map((m) => {
+            if (m.needsPin && pinFor?.id === m.id) {
+              return (
+                <div key={m.id} className="row" style={{ gap: 6 }}>
+                  <input
+                    type="text" className="grow" autoFocus
+                    placeholder={`PIN för ${m.name}`}
+                    value={pinInput}
+                    onChange={(e) => setPinInput(e.target.value)}
+                  />
+                  <button type="button" className="btn sm success" onClick={() => claim(m.id, pinInput.trim())} disabled={busy || !pinInput.trim()}>Gå med</button>
+                  <button type="button" className="btn sm ghost" onClick={() => { setPinFor(null); setPinInput(''); }}>Avbryt</button>
+                </div>
+              );
+            }
+            return (
+              <button
+                key={m.id} type="button" className="btn block ghost" disabled={busy}
+                onClick={() => (m.needsPin ? (setPinFor(m), setPinInput('')) : claim(m.id))}
+              >
+                {m.needsPin ? '🔒 ' : ''}{m.name}
+              </button>
+            );
+          })}
         </div>
       ) : (
         <div className="card stack">
@@ -953,6 +995,7 @@ function HostControls({
   const [libSourceId, setLibSourceId] = useState('');
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [restartClearChat, setRestartClearChat] = useState(false);
+  const [memberQr, setMemberQr] = useState(null); // { url, name } for a member's claim QR
 
   // Players & admins
   const [allUsers, setAllUsers] = useState([]);
@@ -1049,6 +1092,25 @@ function HostControls({
     } finally {
       setLocalBusy(false);
     }
+  };
+
+  // Per-member claim PIN + QR. setMemberPin(generate) protects (or re-rolls) a
+  // member; {pin:''} clears it (admins stay protected server-side). The QR encodes
+  // a deep link that auto-claims that identity when the right person scans it.
+  const setPin = async (memberUserId, body) => {
+    setLocalBusy(true);
+    try {
+      await setMemberPin(id, memberUserId, body);
+      await onReload();
+    } catch (err) {
+      onToast(err?.message || 'Kunde inte uppdatera PIN.');
+    } finally {
+      setLocalBusy(false);
+    }
+  };
+  const showMemberQr = (m) => {
+    const url = `${window.location.origin}/e/${id}?claimUser=${m.id}&pin=${encodeURIComponent(m.pin || '')}`;
+    setMemberQr({ url, name: m.name });
   };
 
   const addAdmin = async () => {
@@ -1273,6 +1335,46 @@ function HostControls({
           )}
         </div>
       </details>
+
+      {/* Per-member claim PIN + QR — protect admins (always) + chosen players */}
+      {(event.members || []).length > 0 ? (
+        <details>
+          <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Spelar-PIN &amp; QR-koder</summary>
+          <div className="stack" style={{ marginTop: '.6rem' }}>
+            <p className="muted small">
+              Admins är alltid skyddade med en PIN. Sätt en PIN på fler spelare om du vill — då måste man ange
+              PIN:en (eller skanna QR-koden) för att gå med som dem. Visa QR-koden för rätt person så går de med automatiskt.
+            </p>
+            {(event.members || []).map((m) => {
+              const isAdmin = (event.adminUserIds || []).includes(m.id);
+              return (
+                <div key={m.id} className="row wrap" style={{ borderTop: '1px solid var(--border)', paddingTop: 8, gap: 8, alignItems: 'center' }}>
+                  <span className="grow"><b>{m.name}</b>{isAdmin ? <span className="pill accent" style={{ marginLeft: 6 }}>admin</span> : null}</span>
+                  {m.pin ? (
+                    <>
+                      <code style={{ fontSize: '1.05rem' }}>{m.pin}</code>
+                      <button type="button" className="btn ghost sm" onClick={() => showMemberQr(m)}>Visa QR</button>
+                      <button type="button" className="btn ghost sm" onClick={() => setPin(m.id, { generate: true })} disabled={anyBusy}>Ny PIN</button>
+                      {!isAdmin ? <button type="button" className="btn ghost sm danger" onClick={() => setPin(m.id, { pin: '' })} disabled={anyBusy}>Ta bort</button> : null}
+                    </>
+                  ) : (
+                    <button type="button" className="btn ghost sm" onClick={() => setPin(m.id, { generate: true })} disabled={anyBusy}>
+                      {m.needsPin ? 'Generera PIN' : 'Skydda med PIN'}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </details>
+      ) : null}
+
+      <QrShareModal
+        open={!!memberQr}
+        url={memberQr?.url || ''}
+        title={memberQr ? `${memberQr.name} — skanna för att gå med` : ''}
+        onClose={() => setMemberQr(null)}
+      />
 
       {/* Co-admins (shared event ownership by account) */}
       <details>
