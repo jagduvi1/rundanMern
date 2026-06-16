@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  getMe, getMyStats, getFriends, getFriendCode, addFriendByCode, removeFriend,
+  getMe, getMyStats, getFriends, getFriendCode, rotateFriendCode, addFriendByCode, removeFriend,
 } from '../api/me';
 import { useDocumentTitle } from '../utils/useDocumentTitle';
 import { useToast } from '../components/Toast';
@@ -144,6 +144,16 @@ function FriendsCard({ onError }) {
   const [codeError, setCodeError] = useState(null);
   const [qrOpen, setQrOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [rotating, setRotating] = useState(false);
+
+  const rotateCode = async () => {
+    // eslint-disable-next-line no-alert
+    if (rotating || !window.confirm('Generera en ny vänkod? Den gamla slutar fungera direkt.')) return;
+    setRotating(true);
+    try { const r = await rotateFriendCode(); setCode(r.code); }
+    catch (e) { setCodeError(e?.message || 'Kunde inte byta kod.'); }
+    finally { setRotating(false); }
+  };
 
   const [addCode, setAddCode] = useState('');
   const [adding, setAdding] = useState(false);
@@ -222,6 +232,9 @@ function FriendsCard({ onError }) {
           </button>
           <button type="button" className="btn sm ghost" onClick={() => setQrOpen(true)} disabled={!code}>
             Visa QR
+          </button>
+          <button type="button" className="btn sm ghost" onClick={rotateCode} disabled={!code || rotating} title="Byt till en ny kod om den gamla läckt">
+            {rotating ? '…' : 'Ny kod'}
           </button>
         </div>
       </div>

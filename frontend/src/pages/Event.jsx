@@ -17,7 +17,7 @@ import {
   getEvent, getStandings, getTeams, reshuffleTeams, setMembers, updateEvent,
   setEventCode, reorderActivities, setActivitiesStatus, arrive, joinEvent, claimEvent,
   claimEventAsMe, addEventAdmin, removeEventAdmin, deleteEvent,
-  addActivityFromLibrary, restartEvent, setMemberPin,
+  addActivityFromLibrary, restartEvent, setMemberPin, revokeMember,
 } from '../api/events';
 import { inviteToEvent } from '../api/invites';
 import { getFriends } from '../api/me';
@@ -1013,6 +1013,22 @@ function HostControls({
   const [allUsers, setAllUsers] = useState([]);
   const [memberIds, setMemberIds] = useState(new Set((event.members || []).map((m) => m.id)));
   const [adminIds, setAdminIds] = useState(new Set(event.adminUserIds || []));
+  // Re-derive the selection from the server whenever the actual member/admin set
+  // changes (e.g. a co-host saved, or our own save landed) — but NOT on every
+  // reload, so unsaved local toggles survive a same-set refresh. Avoids the
+  // last-writer-wins stale overwrite.
+  // Separate effects per field so a concurrent change to one (e.g. a co-host
+  // toggles an admin) doesn't discard the host's unsaved toggles in the other.
+  const memberSig = (event.members || []).map((m) => m.id).slice().sort().join(',');
+  const adminSig = (event.adminUserIds || []).slice().sort().join(',');
+  useEffect(() => {
+    setMemberIds(new Set((event.members || []).map((m) => m.id)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memberSig]);
+  useEffect(() => {
+    setAdminIds(new Set(event.adminUserIds || []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminSig]);
 
   // Account co-admins (shared event ownership).
   const { user } = useAuth();
@@ -1123,6 +1139,18 @@ function HostControls({
   const showMemberQr = (m) => {
     const url = `${window.location.origin}/e/${id}?claimUser=${m.id}&pin=${encodeURIComponent(m.pin || '')}`;
     setMemberQr({ url, name: m.name });
+  };
+  const revoke = async (m) => {
+    setLocalBusy(true);
+    try {
+      const res = await revokeMember(id, m.id);
+      await onReload();
+      onToast(`${m.name}: enheten utloggad. Ny PIN ${res?.pin || ''} — dela den (eller QR) med rätt person för att gå med igen.`);
+    } catch (err) {
+      onToast(err?.message || 'Kunde inte logga ut enheten.');
+    } finally {
+      setLocalBusy(false);
+    }
   };
 
   const addAdmin = async () => {
@@ -1374,6 +1402,7 @@ function HostControls({
                       {m.needsPin ? 'Generera PIN' : 'Skydda med PIN'}
                     </button>
                   )}
+                  <button type="button" className="btn ghost sm danger" onClick={() => revoke(m)} disabled={anyBusy} title="Logga ut spelarens enhet — de måste gå med igen">Logga ut</button>
                 </div>
               );
             })}
@@ -1718,7 +1747,7 @@ function InviteFriends({ eventId, shareUrl, joinCode, members = [], onToast, onR
               <p className="muted small" style={{ margin: 0 }}>Inga inbjudningar att visa.</p>
             ) : (
               results.map((r, i) => (
-                <InviteResultRow key={r.email || r.accountId || i} result={r} onShowQr={setQrUrl} onToast={onToast} />
+                <InviteResultRow key={r.link || r.email || i} result={r} onShowQr={setQrUrl} onToast={onToast} />
               ))
             )}
           </div>

@@ -50,6 +50,16 @@ router.get('/friend-code', asyncHandler(async (req, res) => {
   res.json({ code: account.friendCode });
 }));
 
+// POST /api/me/friend-code/rotate — regenerate my code, invalidating the old one
+// (so a leaked code can't be used to keep adding me). Returns the new code.
+router.post('/friend-code/rotate', asyncHandler(async (req, res) => {
+  const account = await Account.findById(req.user.id);
+  if (!account) return res.status(404).json({ error: 'Account not found' });
+  account.friendCode = await generateUniqueFriendCode(Account);
+  await account.save();
+  res.json({ code: account.friendCode });
+}));
+
 // POST /api/me/friends/by-code — { code } → create the mutual friendship. Idempotent.
 router.post('/friends/by-code', byCodeLimiter, asyncHandler(async (req, res) => {
   const code = (typeof req.body?.code === 'string' ? req.body.code : '').trim().toUpperCase();
