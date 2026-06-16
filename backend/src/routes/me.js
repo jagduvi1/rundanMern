@@ -27,6 +27,18 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
   });
 }));
 
+// PUT /api/me/display-name — update the account's display name.
+router.put('/display-name', requireAuth, asyncHandler(async (req, res) => {
+  const name = (req.body?.displayName ?? '').toString().trim();
+  if (!name) return res.status(400).json({ error: 'Display name is required.' });
+  if (name.length > 60) return res.status(400).json({ error: 'Display name too long (max 60).' });
+  const account = await Account.findById(req.user.id);
+  if (!account) return res.status(404).json({ error: 'Account not found.' });
+  account.displayName = name;
+  await account.save();
+  res.json({ displayName: account.displayName });
+}));
+
 // GET /api/me/stats — totals across every event this account's player took part in.
 router.get('/stats', requireAuth, asyncHandler(async (req, res) => {
   const account = await Account.findById(req.user.id).select('userId').lean();

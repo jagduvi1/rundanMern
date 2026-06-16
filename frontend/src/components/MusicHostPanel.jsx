@@ -107,6 +107,9 @@ export default function MusicHostPanel({ activity }) {
         window: res?.windowSeconds || 30,
       });
       ensureTicking();
+      if (t.spotifyUrl && t.spotifyUrl.trim()) {
+        playTrack(t);
+      }
     } catch (e) {
       setError(e?.message || 'Kunde inte starta spåret.');
     } finally {
@@ -115,7 +118,11 @@ export default function MusicHostPanel({ activity }) {
   }
 
   async function playTrack(t) {
-    if (!canPlayInApp || !(t.spotifyUrl && t.spotifyUrl.trim())) return;
+    if (!(t.spotifyUrl && t.spotifyUrl.trim())) return;
+    if (!canPlayInApp) {
+      window.open(t.spotifyUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
     setPlayBusy(true);
     setPlayError(null);
     try {
@@ -193,11 +200,8 @@ export default function MusicHostPanel({ activity }) {
                 <button type="button" className={`btn sm ${isLive ? 'ghost' : 'success'}`} onClick={() => start(t)} disabled={busy}>
                   {isLive ? 'Starta om' : 'Starta'}
                 </button>
-                {canPlayInApp && t.spotifyUrl && t.spotifyUrl.trim() ? (
-                  <button type="button" className="btn sm" onClick={() => playTrack(t)} disabled={playBusy}>▶ Spela</button>
-                ) : null}
                 {t.spotifyUrl && t.spotifyUrl.trim() ? (
-                  <a className="btn sm ghost" href={t.spotifyUrl} target="_blank" rel="noopener noreferrer">Spotify ↗</a>
+                  <button type="button" className="btn sm" onClick={() => playTrack(t)} disabled={playBusy}>▶ Spela</button>
                 ) : null}
               </div>
               <div className="muted" style={{ fontSize: '.82rem' }}>

@@ -12,6 +12,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
   getMe, getMyStats, getFriends, getFriendCode, addFriendByCode, removeFriend,
+  updateDisplayName,
 } from '../api/me';
 import { useDocumentTitle } from '../utils/useDocumentTitle';
 import { useToast } from '../components/Toast';
@@ -45,6 +46,12 @@ export default function Profile() {
           </p>
           {meError ? <p className="error-text">{meError}</p> : null}
         </div>
+
+        <DisplayNameCard
+          currentName={me?.user?.displayName || ''}
+          onSaved={async (name) => { show('Visningsnamn uppdaterat!'); await loadMe(); }}
+          onError={show}
+        />
 
         {/* Secure your account — invited players who haven't set a password yet. */}
         {me && !me.hasPassword ? (
@@ -132,6 +139,54 @@ function Stat({ label, value }) {
     <div className="center" style={{ minWidth: 84 }}>
       <div style={{ fontSize: '1.6rem', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
       <div className="muted small">{label}</div>
+    </div>
+  );
+}
+
+// ── Display name ──────────────────────────────────────────────────────────────
+function DisplayNameCard({ currentName, onSaved, onError }) {
+  const [name, setName] = useState(currentName);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => { setName(currentName); }, [currentName]);
+
+  const save = async (e) => {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await updateDisplayName(trimmed);
+      onSaved?.(trimmed);
+    } catch (err) {
+      setError(err?.message || 'Kunde inte spara visningsnamnet.');
+      onError?.(err?.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const dirty = name.trim() !== currentName;
+
+  return (
+    <div className="card stack">
+      <h2 style={{ margin: 0 }}>Visningsnamn</h2>
+      <p className="muted small" style={{ margin: 0 }}>Det här namnet visas för andra spelare och värdar.</p>
+      <form className="stack" onSubmit={save}>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={60}
+          placeholder="Ditt visningsnamn"
+        />
+        {error ? <p className="error-text" style={{ margin: 0 }}>{error}</p> : null}
+        <button type="submit" className="btn block success" disabled={busy || !name.trim() || !dirty}>
+          {busy ? <Spinner /> : 'Spara'}
+        </button>
+      </form>
     </div>
   );
 }
