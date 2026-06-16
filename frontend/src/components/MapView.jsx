@@ -11,6 +11,13 @@ import L from 'leaflet';
 
 const OSM_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 const OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+// Label-free CARTO basemap for the "Pin the city" game so players can't just read
+// the city's name off the map (and a tighter max zoom so they can't cheat by
+// zooming into street detail). Mirrors the original's CARTO light_nolabels tiles.
+const NOLABEL_URL = 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png';
+const NOLABEL_ATTR =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> '
+  + '&copy; <a href="https://carto.com/attributions">CARTO</a>';
 const DEFAULT_COLOR = '#2563eb'; // --accent
 
 // A small teardrop pin as an HTML divIcon — avoids the missing-image default-icon
@@ -39,6 +46,8 @@ export default function MapView({
   height = '320px',
   interactive = true,
   fitToMarkers = false,
+  fitMaxZoom = 17, // cap the auto-fit zoom (MapPin reveal frames wider, e.g. 9)
+  noLabels = false, // label-free tiles + zoom clamp (MapPin "pin the city")
 }) {
   const elRef = useRef(null);
   const mapRef = useRef(null);
@@ -60,7 +69,13 @@ export default function MapView({
       tap: interactive,
     }).setView(center, zoom);
 
-    L.tileLayer(OSM_URL, { maxZoom: 19, attribution: OSM_ATTR }).addTo(map);
+    if (noLabels) {
+      L.tileLayer(NOLABEL_URL, {
+        maxZoom: 12, minZoom: 3, attribution: NOLABEL_ATTR, subdomains: 'abcd',
+      }).addTo(map);
+    } else {
+      L.tileLayer(OSM_URL, { maxZoom: 19, attribution: OSM_ATTR }).addTo(map);
+    }
     layerRef.current = L.layerGroup().addTo(map);
 
     map.on('click', (e) => {
@@ -123,10 +138,10 @@ export default function MapView({
         .map((q) => [q.lat, q.lng]);
       if (pts.length > 0) {
         map.invalidateSize();
-        map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 17 });
+        map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: fitMaxZoom });
       }
     }
-  }, [markers, pins, fitToMarkers]);
+  }, [markers, pins, fitToMarkers, fitMaxZoom]);
 
   return (
     <div

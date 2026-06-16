@@ -16,7 +16,7 @@ import {
   MatchFormat, TournamentScoring,
 } from '../config/enums';
 import { typeLabel, rulesSummary } from '../utils/format';
-import { useBootstrap } from '../contexts/BootstrapContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useDocumentTitle } from '../utils/useDocumentTitle';
 import { useToast } from '../components/Toast';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -58,7 +58,9 @@ export default function Manage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast, show } = useToast();
-  const { spotifyClientId } = useBootstrap();
+  // Per-user Spotify: auto-fill/import is available when the host has their own Client ID.
+  const { user } = useAuth();
+  const spotifyClientId = user?.spotifyClientId || '';
   const [leaveTo, setLeaveTo] = useState(null); // pending navigation when there are unsaved edits
 
   const [activity, setActivity] = useState(null);
@@ -655,6 +657,22 @@ function BouleSettings({ f, set }) {
                   </select>
                 </div>
               </div>
+              {f.groupMatchFormat === MatchFormat.Sets ? (
+                <div className="row wrap">
+                  <div className="field" style={{ width: 170 }}>
+                    <label htmlFor="m-gbos">Set per gruppmatch</label>
+                    <select id="m-gbos" value={f.groupBestOfSets} onChange={(e) => set('groupBestOfSets')(Number(e.target.value))}>
+                      <option value={1}>Enkelt set</option>
+                      <option value={3}>Bäst av 3</option>
+                      <option value={5}>Bäst av 5</option>
+                    </select>
+                  </div>
+                  <div className="field" style={{ width: 170 }}>
+                    <label htmlFor="m-ggws">Game för att vinna set</label>
+                    <input id="m-ggws" type="number" min={1} max={100} value={f.groupGamesToWinSet} onChange={(e) => set('groupGamesToWinSet')(Number(e.target.value))} />
+                  </div>
+                </div>
+              ) : null}
               <div className="row wrap">
                 <div className="field" style={{ width: 200 }}>
                   <label htmlFor="m-aa">Avancera till slutspel A / grupp</label>

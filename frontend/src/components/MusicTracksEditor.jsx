@@ -20,13 +20,14 @@ import {
   getAdminQuestions, createQuestion, updateQuestion, deleteQuestion,
 } from '../api/questions';
 import { lookupTrack, importPlaylist } from '../api/music';
-import { useBootstrap } from '../contexts/BootstrapContext';
+import { useAuth } from '../contexts/AuthContext';
 import { QuestionKind } from '../config/enums';
 import Spinner from './Spinner';
 
 export default function MusicTracksEditor({ activity, onChanged }) {
-  const { spotifyClientId } = useBootstrap();
-  const spotifyConfigured = !!spotifyClientId;
+  // Per-user Spotify: "configured" means the logged-in host has their own Client ID.
+  const { user } = useAuth();
+  const spotifyConfigured = !!user?.spotifyClientId;
   const hideFromHost = !!activity?.hideQuestionsFromHost;
 
   const [tracks, setTracks] = useState([]);

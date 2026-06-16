@@ -1,31 +1,35 @@
-// Spotify OAuth (PKCE) + token management — the MERN port of rundan's
-// `SpotifyService.cs`.
+// Spotify OAuth (PKCE) + token management — per-user.
 //
-// A host with Spotify Premium completes a browser OAuth login (Authorization Code
-// + PKCE, NO client secret). The browser hands the server the code; the server
-// exchanges it for tokens, stores them as a reusable named CONNECTION, and uses
-// them to read exact track metadata, drive the Web Playback SDK (a short-lived
-// access token handed to the browser), and bulk-import playlist tracks.
+// PER-USER MODEL: there is NO global/shared Spotify key. Each logged-in host
+// registers their OWN Spotify app and pastes its public Client ID onto their
+// Account (`Account.spotifyClientId`). A host with Spotify Premium then completes
+// a browser OAuth login (Authorization Code + PKCE, NO client secret); the server
+// exchanges the code for tokens and stores them as a reusable CONNECTION OWNED BY
+// that account (`SpotifyConnection.ownerId`). Connections are used to read exact
+// track metadata, drive the Web Playback SDK (a short-lived access token handed to
+// the browser), and bulk-import playlist tracks.
 //
 // SECURITY: refresh/access tokens are SERVER-ONLY. They live on the
 // SpotifyConnection doc with `select:false` and are NEVER returned to clients —
 // this module reads them explicitly with `.select('+refreshToken +accessToken')`
 // and only ever surfaces a freshly-minted access token via getPlaybackToken
-// (admin-gated by the route layer).
+// (auth-gated by the route layer). A connection refreshes against its OWNER's
+// Client ID (resolved via `ownerId`), so playback keeps working regardless of who
+// triggers it.
 
-const { SpotifyConnection, AppSetting, Activity } = require('../models');
+const { SpotifyConnection, Account, Activity } = require('../models');
 const { RuleViolation } = require('../middleware/error');
 const { spotifyConnectionDto } = require('./serializers');
 const musicLookup = require('./musicLookup');
-const env = require('../config/env');
 
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const API_BASE = 'https://api.spotify.com/v1';
-// AppSetting key that overrides env.spotifyClientId (matches SpotifyService.ClientIdSettingKey).
-const CLIENT_ID_SETTING_KEY = 'Spotify.ClientId';
 const HTTP_TIMEOUT_MS = 6000; // matches the C# "music" named HttpClient (6 s)
 
 const now = () => new Date();
+
+// Trim a Client ID to its non-blank value, or null.
+const trimId = (v) => (v && typeof v === 'string' && v.trim() ? v.trim() : null);
 
 // Truncate an error/body to a short single line (port of SpotifyService.Short).
 function short(s) {
@@ -46,36 +50,35 @@ async function httpFetch(url, init = {}) {
 }
 
 /**
- * The effective Spotify app Client ID: the UI-saved AppSetting if present, else
- * the env config; trimmed; null when blank. Port of SpotifyService.ClientIdAsync.
+ * The Spotify app Client ID configured on an account (per-user), trimmed, or null.
  *
+ * @param {string} accountId
  * @returns {Promise<string|null>}
  */
-async function effectiveClientId() {
-  const row = await AppSetting.findById(CLIENT_ID_SETTING_KEY).lean();
-  const fromDb = row && typeof row.value === 'string' ? row.value : '';
-  const id = fromDb && fromDb.trim() ? fromDb : (env.spotifyClientId || '');
-  return id && id.trim() ? id.trim() : null;
+async function getClientId(accountId) {
+  if (!accountId) return null;
+  const acct = await Account.findById(accountId).select('spotifyClientId').lean();
+  return acct ? trimId(acct.spotifyClientId) : null;
 }
 
 /**
- * Save (or clear, when blank) the Spotify Client ID set from the UI. Port of
- * SpotifyService.SetClientIdAsync — empty deletes the row, else upserts.
+ * Save (or clear, when blank) the account's own Spotify Client ID. Returns the
+ * stored (trimmed) value so the caller can echo it back to the client.
  *
+ * @param {string} accountId
  * @param {string} clientId
- * @returns {Promise<void>}
+ * @returns {Promise<string>}
  */
-async function setClientId(clientId) {
-  const val = (clientId || '').trim();
-  if (val.length === 0) {
-    await AppSetting.deleteOne({ _id: CLIENT_ID_SETTING_KEY });
-  } else {
-    await AppSetting.updateOne(
-      { _id: CLIENT_ID_SETTING_KEY },
-      { $set: { value: val } },
-      { upsert: true },
-    );
-  }
+async function setClientId(accountId, clientId) {
+  // Hard-cap to the schema's maxlength (updateOne runs no validators).
+  const val = (clientId || '').trim().slice(0, 200);
+  await Account.updateOne({ _id: accountId }, { $set: { spotifyClientId: val } });
+  return val;
+}
+
+// The Client ID that OWNS a connection — used to refresh its tokens.
+async function clientIdForConnection(conn) {
+  return getClientId(conn && conn.ownerId);
 }
 
 // POST the form-encoded token request; parse the token response. Throws a clear
@@ -142,7 +145,7 @@ async function ensureFresh(conn) {
     return;
   }
 
-  const clientId = await effectiveClientId();
+  const clientId = await clientIdForConnection(conn);
   if (!clientId) throw new RuleViolation("Spotify isn't set up yet (no Client ID).");
 
   const token = await exchange({
@@ -159,25 +162,28 @@ async function ensureFresh(conn) {
   await conn.save();
 }
 
-// Load a connection WITH its server-only tokens (or null).
-function findWithTokens(connectionId) {
-  return SpotifyConnection.findById(connectionId).select('+refreshToken +accessToken');
+// Load a connection WITH its server-only tokens (or null). When `ownerId` is
+// given, the lookup is scoped to that owner (so a host only ever touches their
+// own connections); omit it for the game-time playback path.
+function findWithTokens(connectionId, ownerId = null) {
+  const filter = ownerId ? { _id: connectionId, ownerId } : { _id: connectionId };
+  return SpotifyConnection.findOne(filter).select('+refreshToken +accessToken');
 }
 
 /**
- * Exchange the OAuth code (PKCE) for tokens and save a new connection named after
- * the account. Port of SpotifyService.ConnectAsync. Returns the client-safe
- * SpotifyConnectionDto (tokens stay server-side).
+ * Exchange the OAuth code (PKCE) for tokens and save a new connection owned by the
+ * account. Returns the client-safe SpotifyConnectionDto (tokens stay server-side).
  *
  * @param {object} args
+ * @param {string} args.accountId    the host whose Client ID + connection this is
  * @param {string} args.code
  * @param {string} args.codeVerifier
  * @param {string} args.redirectUri  must match the authorize request exactly
  * @returns {Promise<object>} SpotifyConnectionDto
  */
-async function exchangeCode({ code, codeVerifier, redirectUri }) {
-  const clientId = await effectiveClientId();
-  if (!clientId) throw new RuleViolation("Spotify isn't set up yet (no Client ID).");
+async function exchangeCode({ accountId, code, codeVerifier, redirectUri }) {
+  const clientId = await getClientId(accountId);
+  if (!clientId) throw new RuleViolation('Add your Spotify Client ID first, then connect.');
 
   const token = await exchange({
     grant_type: 'authorization_code',
@@ -194,6 +200,7 @@ async function exchangeCode({ code, codeVerifier, redirectUri }) {
   const { id, displayName } = await me(token.accessToken);
 
   const conn = await SpotifyConnection.create({
+    ownerId: accountId,
     name: displayName && displayName.trim() ? displayName : 'Spotify account',
     spotifyUserId: id || '',
     refreshToken: token.refreshToken,
@@ -207,73 +214,64 @@ async function exchangeCode({ code, codeVerifier, redirectUri }) {
 }
 
 /**
- * List saved connections (client-safe DTOs), ordered by name. Port of
- * SpotifyService.ListAsync.
+ * List an account's own saved connections (client-safe DTOs), ordered by name.
  *
+ * @param {string} ownerId
  * @returns {Promise<object[]>}
  */
-async function listConnections() {
-  const conns = await SpotifyConnection.find().sort({ name: 1 }).lean();
+async function listConnections(ownerId) {
+  const conns = await SpotifyConnection.find({ ownerId }).sort({ name: 1 }).lean();
   return conns.map(spotifyConnectionDto);
 }
 
 /**
- * Delete a connection; activities that pointed at it fall back to the free oEmbed
- * path (their spotifyConnectionId is nulled out). Port of SpotifyService.DeleteAsync
- * (incl. the Activity cascade).
+ * Delete one of the account's connections; activities that pointed at it fall back
+ * to the free oEmbed path (their spotifyConnectionId is nulled out).
  *
  * @param {string} connectionId
+ * @param {string} ownerId  scopes the delete to the caller's own connections
  * @returns {Promise<void>}
  */
-async function deleteConnection(connectionId) {
-  await SpotifyConnection.deleteOne({ _id: connectionId });
-  await Activity.updateMany(
-    { spotifyConnectionId: connectionId },
-    { $set: { spotifyConnectionId: null } },
-  );
-}
-
-/**
- * Refresh a connection's access token using its refresh token (rotates the
- * refresh token if Spotify returns a new one) and persist. Accepts a connection
- * id or a loaded doc. Port of the public surface around EnsureFreshAsync.
- *
- * @param {string|object} connection  id or a SpotifyConnection doc
- * @returns {Promise<object|null>} the refreshed doc (with tokens), or null if gone
- */
-async function refreshConnection(connection) {
-  const conn = typeof connection === 'object' && connection.save
-    ? connection
-    : await findWithTokens(typeof connection === 'object' ? connection._id : connection);
-  if (!conn) return null;
-  await ensureFresh(conn);
-  return conn;
+async function deleteConnection(connectionId, ownerId) {
+  const filter = ownerId ? { _id: connectionId, ownerId } : { _id: connectionId };
+  const res = await SpotifyConnection.deleteOne(filter);
+  if (res.deletedCount) {
+    await Activity.updateMany(
+      { spotifyConnectionId: connectionId },
+      { $set: { spotifyConnectionId: null } },
+    );
+  }
 }
 
 /**
  * A FRESH access token for the host's browser to drive the Web Playback SDK
  * (refreshes if expired). Null if the connection is gone; throws if the refresh
- * fails. Admin-only — enforced by the route layer. Port of SpotifyService.GetAccessTokenAsync.
+ * fails. When `ownerId` is given the lookup is scoped to that owner (the Admin
+ * connection-management route); the game-time path omits it. Port of
+ * SpotifyService.GetAccessTokenAsync.
  *
  * @param {string} connectionId
+ * @param {string|null} ownerId
  * @returns {Promise<{accessToken:string}|null>} SpotifyTokenDto, or null if gone
  */
-async function getPlaybackToken(connectionId) {
-  const conn = await findWithTokens(connectionId);
+async function getPlaybackToken(connectionId, ownerId = null) {
+  const conn = await findWithTokens(connectionId, ownerId);
   if (!conn) return null;
   await ensureFresh(conn);
   return { accessToken: conn.accessToken };
 }
 
 /**
- * Re-check a connection: refresh the token and call /me, recording + returning
- * the outcome (and re-syncing the display name). Port of SpotifyService.ValidateAsync.
+ * Re-check one of the account's connections: refresh the token and call /me,
+ * recording + returning the outcome (and re-syncing the display name). Port of
+ * SpotifyService.ValidateAsync.
  *
  * @param {string} connectionId
+ * @param {string} ownerId
  * @returns {Promise<{valid:boolean,message:string}>} SpotifyValidateResultDto
  */
-async function validate(connectionId) {
-  const conn = await findWithTokens(connectionId);
+async function validate(connectionId, ownerId) {
+  const conn = await findWithTokens(connectionId, ownerId);
   if (!conn) {
     return { valid: false, message: 'Connection not found.' };
   }
@@ -318,13 +316,11 @@ async function lookupTrackViaConnection(connectionId, spotifyUrl) {
 }
 
 module.exports = {
-  CLIENT_ID_SETTING_KEY,
-  effectiveClientId,
+  getClientId,
   setClientId,
   exchangeCode,
   listConnections,
   deleteConnection,
-  refreshConnection,
   getPlaybackToken,
   validate,
   lookupTrackViaConnection,

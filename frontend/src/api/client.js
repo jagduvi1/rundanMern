@@ -12,7 +12,21 @@ const KEYS = {
   access: 'rundan.access',
   session: (activityId) => `rundan.session.${activityId}`,
   member: (eventId) => `rundan.membertoken.${eventId}`,
+  proxy: 'rundan.proxy',
 };
+
+// "Play for a player" overlay: when a host is proxying a roster player, that
+// player's per-activity tokens + member token (held in the proxy object) take
+// precedence — as a READ-ONLY OVERLAY that NEVER overwrites the device's own
+// stored session/member keys. So stopping the proxy (clearing rundan.proxy)
+// instantly restores the host's own identity with nothing left to leak. Read
+// straight from localStorage to avoid importing the appState layer.
+function activeProxy() {
+  try {
+    const raw = localStorage.getItem(KEYS.proxy);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
 
 // Host-auth hooks, wired by AuthContext so the client can read the live access
 // token and trigger a refresh on 401.
@@ -31,14 +45,27 @@ export const getAccessCode = () => localStorage.getItem(KEYS.access) || '';
 export const setAccessCode = (c) =>
   c ? localStorage.setItem(KEYS.access, c) : localStorage.removeItem(KEYS.access);
 
-export const getParticipantToken = (activityId) =>
-  (activityId && localStorage.getItem(KEYS.session(activityId))) || null;
+export const getParticipantToken = (activityId) => {
+  if (!activityId) return null;
+  const proxy = activeProxy();
+  if (proxy && Array.isArray(proxy.slots)) {
+    const slot = proxy.slots.find((s) => String(s.activityId) === String(activityId));
+    if (slot && slot.token) return slot.token; // overlay wins while proxying
+  }
+  return localStorage.getItem(KEYS.session(activityId)) || null;
+};
 export const setParticipantToken = (activityId, token) =>
   token ? localStorage.setItem(KEYS.session(activityId), token)
         : localStorage.removeItem(KEYS.session(activityId));
 
-export const getMemberToken = (eventId) =>
-  (eventId && localStorage.getItem(KEYS.member(eventId))) || null;
+export const getMemberToken = (eventId) => {
+  if (!eventId) return null;
+  const proxy = activeProxy();
+  if (proxy && proxy.memberToken && String(proxy.eventId) === String(eventId)) {
+    return proxy.memberToken; // overlay wins while proxying this event
+  }
+  return localStorage.getItem(KEYS.member(eventId)) || null;
+};
 export const setMemberToken = (eventId, token) =>
   token ? localStorage.setItem(KEYS.member(eventId), token)
         : localStorage.removeItem(KEYS.member(eventId));

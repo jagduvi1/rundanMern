@@ -2,8 +2,9 @@ import { createContext, useContext, useEffect, useState, useCallback } from 'rea
 import { apiGet, getAccessCode, setAccessCode } from '../api/client';
 
 // Public app config fetched before the access gate — the port of rundan's
-// BootstrapDto. Tells the SPA the app name, whether a shared access code is
-// required, and the public Spotify client id.
+// BootstrapDto. Tells the SPA the app name and whether a shared access code is
+// required. (Spotify is per-user now — the host reads their own Client ID from
+// their account via useAuth(), not from here.)
 const BootstrapContext = createContext(null);
 
 export function useBootstrap() {
@@ -40,7 +41,6 @@ export function BootstrapProvider({ children }) {
     loading,
     appName: bootstrap?.appName || 'Rundan',
     requiresAccessCode,
-    spotifyClientId: bootstrap?.spotifyClientId || '',
     hasWebPush: !!bootstrap?.hasWebPush,
     accessCode,
     saveAccessCode,

@@ -10,9 +10,7 @@ import { getActivity, getScoreboard } from '../api/activities';
 import { getEvent } from '../api/events';
 import { listParticipants } from '../api/participants';
 import { getActivitySlap } from '../api/eventSocial';
-import {
-  getParticipantToken, setParticipantToken, getMemberToken, setMemberToken, ApiError,
-} from '../api/client';
+import { getParticipantToken, setParticipantToken, ApiError } from '../api/client';
 import { ActivityType, ActivityStatus, SlapState } from '../config/enums';
 import { ServerEvents } from '../config/socketEvents';
 import { getSocket, joinActivity as sockJoinActivity, leaveActivity } from '../utils/socket';
@@ -142,19 +140,9 @@ export default function Activity() {
       if (act.eventId) {
         if (isProxying() && getProxy()?.eventId !== String(act.eventId)) clearProxy();
         setViewerState(readViewer(act.eventId));
-
-        // Attach THIS event's member token; if it differs from what the first GET
-        // used, re-GET so canManage reflects our real event-admin status here.
-        const proxy = getProxy();
-        const sentToken = getMemberToken(act.eventId);
-        if (!isProxying()) {
-          // member token is already keyed per-event in client.js; nothing to copy.
-        } else if (proxy?.eventId === String(act.eventId) && proxy.memberToken) {
-          setMemberToken(act.eventId, proxy.memberToken);
-        }
-        if (getMemberToken(act.eventId) !== sentToken) {
-          try { act = (await getActivity(id)) || act; } catch { /* keep */ }
-        }
+        // The member token is keyed per-event in client.js AND, while a host is
+        // "playing for" a player, overlaid by the active proxy (getMemberToken
+        // reads the proxy first) — so there's nothing to copy onto the device.
       }
 
       setActivity(act);
@@ -442,7 +430,7 @@ function renderCentral(ctx) {
         {type === ActivityType.Boule ? (
           <BracketBoard activity={activity} canManage={canManage} refreshKey={scoreVersion} />
         ) : status === ActivityStatus.Finished && usesQuestions ? (
-          <ResultsView activity={activity} />
+          <ResultsView activity={activity} session={session} canManage={canManage} />
         ) : null}
       </>
     );
@@ -463,7 +451,7 @@ function renderCentral(ctx) {
       );
     }
     if (status === ActivityStatus.Finished && usesQuestions) {
-      return (<><ResultsView activity={activity} /><ResultsSummary activity={activity} /></>);
+      return (<><ResultsView activity={activity} session={session} canManage={canManage} /><ResultsSummary activity={activity} /></>);
     }
     if (status === ActivityStatus.Finished && resultsTypes.includes(type)) {
       return <ResultsSummary activity={activity} />;
@@ -506,12 +494,12 @@ function renderCentral(ctx) {
         ? <HitsterPlay activity={activity} participant={session} />
         : <MusicQuizPlay activity={activity} participant={session} />;
       case ActivityType.Memory: return <MemoryPlay activity={activity} participant={session} />;
-      default: return <BouleBoard activity={activity} participant={session} canManage={canManage} />;
+      default: return <BouleBoard activity={activity} participant={session} participants={participants} canManage={canManage} />;
     }
   }
 
   // 6) Finished (joined)
-  if (usesQuestions) return (<><ResultsView activity={activity} /><ResultsSummary activity={activity} /></>);
+  if (usesQuestions) return (<><ResultsView activity={activity} session={session} canManage={canManage} /><ResultsSummary activity={activity} /></>);
   if (resultsTypes.includes(type)) return <ResultsSummary activity={activity} />;
   if (type === ActivityType.Boule) return <BracketBoard activity={activity} canManage={canManage} refreshKey={scoreVersion} />;
   if (type === ActivityType.WordGame) return <WordGamePlay activity={activity} participant={session} />;

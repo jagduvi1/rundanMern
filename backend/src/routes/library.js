@@ -13,6 +13,7 @@ const express = require('express');
 
 const { asyncHandler } = require('../middleware/error');
 const { activityManager } = require('../middleware/eventAuth');
+const { requireAuth, requireAdmin } = require('../middleware/auth');
 const questionLibrary = require('../services/questionLibrary');
 
 const router = express.Router();
@@ -33,6 +34,14 @@ router.get('/question-library/available', asyncHandler(async (req, res) => {
     .map((t) => t.trim())
     .filter((t) => t.length > 0);
   res.json(await questionLibrary.availableCount(tags));
+}));
+
+// POST /api/question-library/reset-usage — forget all usage rows so the whole
+// library can be drawn again (port of QuestionLibraryEndpoints' reset-usage,
+// admin-only). Returns { cleared: <count> }.
+router.post('/question-library/reset-usage', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  const cleared = await questionLibrary.resetUsage();
+  res.json({ cleared });
 }));
 
 // ── Generate: pull N random matching questions into a Draft activity ──────────

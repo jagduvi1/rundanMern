@@ -56,9 +56,8 @@ const env = {
   seedCode: process.env.SEED_CODE || 'CALLE',
   seedOnStartup: bool(process.env.SEED_ON_STARTUP, false),
 
-  // Spotify (music quiz).
-  spotifyClientId: str(process.env.SPOTIFY_CLIENT_ID),
-  spotifyClientSecret: str(process.env.SPOTIFY_CLIENT_SECRET),
+  // Spotify (music quiz) is PER-USER — each host sets their own Client ID on their
+  // account (Account.spotifyClientId). There is intentionally NO global key here.
 
   // Last.fm (similar-artist distractors).
   lastFmApiKey: str(process.env.LASTFM_API_KEY),
@@ -83,8 +82,6 @@ const env = {
   },
   get requiresAccessCode() { return !!this.accessCode; },
   get hasLastFm() { return !!this.lastFmApiKey; },
-  get hasSpotify() { return !!this.spotifyClientId; },
-  get hasSpotifyServer() { return !!(this.spotifyClientId && this.spotifyClientSecret); },
   get hasWebPush() { return !!(this.vapidPublicKey && this.vapidPrivateKey); },
   get hasEmail() { return !!this.resendApiKey; },
 };

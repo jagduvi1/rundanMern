@@ -275,7 +275,7 @@ router.post(
       teamSize: clamp(teamSize ?? 2, 1, 20),
       startsAt: startsAt ?? null,
       endsAt: endsAt ?? null,
-      joinCode: await uniqueJoinCode(Event),
+      joinCode: await uniqueJoinCode([Activity, Event]),
       createdUtc: new Date(),
       owner: req.user.id,
     };
@@ -333,7 +333,7 @@ router.get(
 
 // POST /api/events/:id/arrive — auto-start any OPEN activity whose own geofence,
 // or (for Tipspromenad) any of its question geofences, the player has walked into.
-// Distance = haversine; radius = the point's radiusMeters when > 0 else 40 m.
+// Distance = haversine; radius = the point's radiusMeters when > 0 else 25 m.
 router.post(
   '/:id/arrive',
   optionalAuth,
@@ -356,7 +356,7 @@ router.post(
       : [];
 
     const within = (la, ln, tLat, tLng, radius) =>
-      geo.withinRadius(la, ln, tLat, tLng, radius > 0 ? radius : 40);
+      geo.withinRadius(la, ln, tLat, tLng, radius > 0 ? radius : 25);
 
     const started = [];
     const startedDocs = [];
@@ -378,7 +378,9 @@ router.post(
 
     if (startedDocs.length > 0) {
       const { activityStatusChanged } = require('../socket/emit');
+      const { notify } = require('../services/push');
       const event = await Event.findById(req.params.id);
+      const evId = idStr(req.params.id);
       for (const a of startedDocs) {
         // Generate teams (roster events) so players can claim a session, then push.
         // eslint-disable-next-line no-await-in-loop
@@ -386,6 +388,12 @@ router.post(
         // eslint-disable-next-line no-await-in-loop
         await pushScoreboard(a._id);
         activityStatusChanged(idStr(a), { activityId: idStr(a), status: ActivityStatus.Live });
+        // Web Push the whole event: someone reached the geofence and it's live now.
+        notify(
+          evId, '📍 First arrival!',
+          `Someone reached “${a.title}” — it's live now.`,
+          `e/${evId}`, `live-${idStr(a)}`,
+        );
       }
     }
 
@@ -658,7 +666,7 @@ router.put(
     const code = (req.body?.code ?? '').toString().trim().toUpperCase();
 
     if (code.length === 0) {
-      event.joinCode = await uniqueJoinCode(Event);
+      event.joinCode = await uniqueJoinCode([Activity, Event]);
     } else {
       if (code.length < 3 || code.length > 16 || !/^[A-Z0-9-]+$/.test(code)) {
         throw new RuleViolation('A code must be 3–16 letters, numbers or dashes.');
@@ -752,6 +760,36 @@ router.put(
 
 // ── Event-wide simulate / reset (event-host) ──────────────────────────────────
 
+// POST /api/events/:id/activities/from-library/:sourceId — deep-copy a PUBLIC
+// library activity (config + questions + options + courts + memory cards) into
+// this event as a fresh Draft. Auth: event-host. Returns the new ActivityDto.
+router.post(
+  '/:id/activities/from-library/:sourceId',
+  requireAuth,
+  eventManager,
+  asyncHandler(async (req, res) => {
+    // eslint-disable-next-line global-require
+    const activityLibrary = require('../services/activityLibrary');
+    const ev = req.targetEvent;
+    const { activity, questionCount } = await activityLibrary.copyToEvent(
+      req.params.sourceId, ev._id,
+    );
+    const plain = activity.toObject();
+    plain.courts = (activity.courts || []).slice().sort((a, b) => a.order - b.order);
+    // Derive roster counts like loadActivityDto / the .NET LoadDtoAsync so the
+    // returned DTO matches a subsequent reload (no participants yet → 0).
+    const memberCount = await EventMember.countDocuments({ eventId: ev._id });
+    res.status(201).json(activityDto(plain, {
+      canManage: true,
+      participantCount: 0,
+      questionCount,
+      isTeamBased: ev.teamSize > 1,
+      playerCount: memberCount,
+      teamCount: memberCount > 0 && ev.teamSize > 1 ? Math.ceil(memberCount / ev.teamSize) : 0,
+    }));
+  })
+);
+
 // POST /api/events/:id/simulate — dry-run fill every activity (in running order)
 // with plausible random results so the host can preview the whole event before the
 // real day. Expected "nothing to simulate" cases (RuleViolation, e.g. no
@@ -768,6 +806,9 @@ router.post(
     const event = req.targetEvent;
     const activities = await Activity.find({ eventId: event._id }).sort({ order: 1, _id: 1 });
 
+    const { activityStatusChanged } = require('../socket/emit');
+    const { pushScoreboard: push } = require('../services/scoreboard');
+
     let simulated = 0;
     let skipped = 0;
     const failures = [];
@@ -775,7 +816,7 @@ router.post(
       try {
         // eslint-disable-next-line no-await-in-loop
         await simulation.simulate(a);
-        simulated += 1;
+        simulated += 1; // the activity is now simulated + persisted (Finished)
       } catch (e) {
         if (e instanceof RuleViolation) {
           skipped += 1; // legitimately unsimulatable (e.g. no participants/questions)
@@ -783,6 +824,17 @@ router.post(
           failures.push({ activityId: idStr(a), title: a.title, error: e.message });
           console.error(`Event simulate failed for activity ${idStr(a)}:`, e.message);
         }
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      // Side-effects are isolated so a transient push/scoreboard error doesn't
+      // mis-report an already-simulated activity as a failure.
+      try {
+        activityStatusChanged(idStr(a), { activityId: idStr(a), status: a.status });
+        // eslint-disable-next-line no-await-in-loop
+        await push(a._id);
+      } catch (e) {
+        console.error(`Event simulate push failed for activity ${idStr(a)}:`, e.message);
       }
     }
 
@@ -804,7 +856,8 @@ router.post(
     const simulation = require('../services/simulation');
     // eslint-disable-next-line global-require
     const { pushScoreboard: push } = require('../services/scoreboard');
-    const { ChatMessage } = require('../models');
+    const { activityStatusChanged } = require('../socket/emit');
+    const { ChatMessage, Participant } = require('../models');
     const event = req.targetEvent;
     const activities = await Activity.find({ eventId: event._id }).sort({ order: 1, _id: 1 });
 
@@ -812,6 +865,10 @@ router.post(
     for (const a of activities) {
       // eslint-disable-next-line no-await-in-loop
       await simulation.clearResults(a);
+      // Drop generated teams so a re-open re-forms them from the CURRENT roster
+      // (ensureTeams is idempotent, so stale teams would otherwise persist).
+      // eslint-disable-next-line no-await-in-loop
+      await Participant.deleteMany({ activityId: a._id, isTeam: true });
       a.status = ActivityStatus.Draft;
       a.startedUtc = null;
       a.finishedUtc = null;
@@ -819,6 +876,8 @@ router.post(
       await a.save();
       // eslint-disable-next-line no-await-in-loop
       await push(a._id);
+      // Tell live clients the activity went back to Draft (was missing before).
+      activityStatusChanged(idStr(a), { activityId: idStr(a), status: ActivityStatus.Draft });
       reset += 1;
     }
 

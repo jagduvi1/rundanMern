@@ -10,7 +10,7 @@
 const express = require('express');
 
 const {
-  Activity, Event, EventMember, Participant, Question, ScoreEntry, Answer,
+  Activity, Event, EventMember, Participant, Question, ScoreEntry, Answer, SpotifyConnection,
 } = require('../models');
 const {
   ActivityType, ActivityStatus, Measurement, ScoringMode, QuestionKind, values,
@@ -157,7 +157,7 @@ router.post('/', optionalAuth, asyncHandler(async (req, res) => {
     targetValue: req0.targetValue != null ? req0.targetValue : null,
     mapCityCount: mapCityCount != null ? mapCityCount : null,
     status: ActivityStatus.Draft,
-    joinCode: await uniqueJoinCode(Activity),
+    joinCode: await uniqueJoinCode([Activity, Event]),
   });
 
   res.status(201)
@@ -306,8 +306,23 @@ router.put('/:id', activityManager, asyncHandler(async (req, res) => {
   activity.hitsterMode = !!r.hitsterMode && activity.type === ActivityType.MusicQuiz;
   activity.hitsterCardsToWin = activity.hitsterMode
     ? Math.max(3, Math.min(30, Number(r.hitsterCardsToWin) || 10)) : 10;
-  activity.spotifyConnectionId = activity.type === ActivityType.MusicQuiz
-    ? (r.spotifyConnectionId || null) : null;
+  // Bind a Spotify connection only if it's the caller's OWN (connections are
+  // per-user). Without this an attacker could attach another host's connection to
+  // their activity and exercise that host's OAuth grant server-side (private
+  // playlist exfiltration) via the music lookup/import paths. Keep an unchanged
+  // value as-is so a co-host editing other fields doesn't unbind it.
+  if (activity.type !== ActivityType.MusicQuiz || !r.spotifyConnectionId) {
+    activity.spotifyConnectionId = null;
+  } else if (String(r.spotifyConnectionId) === String(activity.spotifyConnectionId || '')) {
+    // unchanged — keep
+  } else {
+    let owned = false;
+    try {
+      owned = !!(req.user
+        && await SpotifyConnection.exists({ _id: r.spotifyConnectionId, ownerId: req.user.id }));
+    } catch { owned = false; } // bad ObjectId etc. → treat as not owned
+    activity.spotifyConnectionId = owned ? r.spotifyConnectionId : null;
+  }
   activity.hideQuestionsFromHost = !!r.hideQuestionsFromHost;
   activity.isPublic = !!r.isPublic;
   activity.scoreEntryMode = r.scoreEntryMode != null ? r.scoreEntryMode : activity.scoreEntryMode;

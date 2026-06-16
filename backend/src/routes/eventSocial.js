@@ -240,10 +240,12 @@ router.post(
   '/:id/slap',
   optionalAuth,
   asyncHandler(async (req, res) => {
-    const { event } = await slapActor(req, 'Only a player in this event can slap.');
+    const { event, actorUserId } = await slapActor(req, 'Only a player in this event can slap.');
     const { activityId, slappedUserId, recipientUserId } = req.body || {};
 
-    await slap.performSlap(event, { activityId, slappedUserId, recipientUserId });
+    await slap.performSlap(event, {
+      activityId, slappedUserId, recipientUserId, actorUserId,
+    });
     await afterSlap(activityId, idStr(event._id));
     res.json({ ok: true });
   })
