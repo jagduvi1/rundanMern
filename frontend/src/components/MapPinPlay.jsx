@@ -3,11 +3,10 @@
 // wins. Sequential, city by city.
 //
 // The React port of rundan's MapPinPlay.razor, rebuilt on the shared <MapView>
-// (raw Leaflet, OSM tiles). NOTE: the original used CARTO `light_nolabels`
-// (no place names) tiles; <MapView> is a fixed foundation component that only
-// serves OSM tiles, so the map here DOES show labels — see the contract note in
-// the summary. The reveal (real location marker + distance) and the
-// lowest-total-wins flow are faithful.
+// with the `noLabels` option so it serves CARTO `light_nolabels` tiles (no place
+// names) and clamps the zoom — players can't read the city's name off the map or
+// zoom into street detail to cheat, matching the original. The reveal (real
+// location marker + distance) and the lowest-total-wins flow are faithful.
 //
 // Props:
 //   activity   : ActivityDto — { id, ... }.
@@ -123,6 +122,8 @@ export default function MapPinPlay({ activity, participant }) {
             pins={pin ? [{ lat: pin.lat, lng: pin.lng }] : []}
             markers={result ? [{ lat: result.realLat, lng: result.realLng, label: current.name, color: '#16a34a' }] : []}
             fitToMarkers={!!result && !!pin}
+            fitMaxZoom={9}
+            noLabels
           />
 
           {!result ? (

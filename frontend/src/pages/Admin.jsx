@@ -5,7 +5,7 @@
 //
 // Contract gaps vs doc 09 (no backend endpoint): there is no "list all
 // activities" route, so the standalone-activities card creates + opens but cannot
-// list existing ones; and there is no event-wide "add from library" copy.
+// list existing ones.
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listEvents, deleteEvent } from '../api/events';
@@ -19,7 +19,7 @@ import { ApiError } from '../api/client';
 import { ActivityStatus, ActivityType, EventScoring, SlapMode } from '../config/enums';
 import { typeLabel } from '../utils/format';
 import { startLogin, redirectUri, SPOTIFY_SCOPES } from '../utils/spotifyAuth';
-import { useBootstrap } from '../contexts/BootstrapContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useDocumentTitle } from '../utils/useDocumentTitle';
 import { useToast } from '../components/Toast';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -61,7 +61,9 @@ export default function Admin() {
   useDocumentTitle('Värdpanel · Rundan');
   const navigate = useNavigate();
   const { toast, show } = useToast();
-  const { spotifyClientId, reload } = useBootstrap();
+  // Spotify is per-user: the host's own Client ID lives on their account.
+  const { user, patchUser } = useAuth();
+  const spotifyClientId = user?.spotifyClientId || '';
 
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -100,11 +102,20 @@ export default function Admin() {
       const arr = Array.isArray(tags) ? tags : [];
       setTopics(arr.filter((t) => String(t).startsWith('topic:')).length);
     }).catch(() => {});
-    if (spotifyClientId) listConnections().then(setConnections).catch(() => {});
+    // Spotify connections load in the [spotifyClientId] effect below (covers both
+    // first mount and client-id changes) — not here, to avoid a double fetch.
     listActivities().then((list) => setStandalone(Array.isArray(list) ? list : [])).catch(() => {});
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  // The host's own Client ID arrives async (auth /me). Mirror it into the input
+  // and (re)load their connections whenever it changes.
+  useEffect(() => {
+    setClientIdInput(spotifyClientId || '');
+    if (spotifyClientId) listConnections().then(setConnections).catch(() => {});
+    else setConnections([]);
+  }, [spotifyClientId]);
 
   const removeEvent = async (id) => {
     setConfirmDeleteId(null);
@@ -135,10 +146,11 @@ export default function Admin() {
   const saveClientId = async () => {
     setBusy(true);
     try {
-      await setClientId(clientIdInput.trim());
-      await reload();
-      show('Spotify-klient-ID sparat.');
-      listConnections().then(setConnections).catch(() => {});
+      const { clientId } = await setClientId(clientIdInput.trim());
+      patchUser({ spotifyClientId: clientId });
+      show(clientId ? 'Spotify-klient-ID sparat.' : 'Spotify-klient-ID borttaget.');
+      if (clientId) listConnections().then(setConnections).catch(() => {});
+      else setConnections([]);
     } catch (err) {
       show(err?.message || 'Kunde inte spara klient-ID.');
     } finally {
@@ -300,38 +312,49 @@ export default function Admin() {
         </div>
       </div>
 
-      {/* Spotify */}
-      {spotifyClientId ? (
-        <div className="card stack">
-          <h2 style={{ margin: 0 }}>Spotify</h2>
-          <div className="field">
-            <label htmlFor="spotify-client">Klient-ID</label>
-            <div className="row">
-              <input type="text" id="spotify-client" className="grow" value={clientIdInput} onChange={(e) => setClientIdInput(e.target.value)} />
-              <button type="button" className="btn sm" onClick={saveClientId} disabled={busy}>Spara</button>
-            </div>
+      {/* Spotify — per-user: each host connects their OWN Spotify app + account. */}
+      <div className="card stack">
+        <h2 style={{ margin: 0 }}>Spotify</h2>
+        <p className="muted small" style={{ margin: 0 }}>
+          Musikquiz använder ditt eget Spotify-konto. Skapa en egen Spotify-app, klistra in
+          dess Klient-ID nedan och anslut sedan ditt Premium-konto. Inget delas mellan användare.
+        </p>
+        <div className="field">
+          <label htmlFor="spotify-client">Ditt Spotify Klient-ID</label>
+          <div className="row">
+            <input type="text" id="spotify-client" className="grow" value={clientIdInput} onChange={(e) => setClientIdInput(e.target.value)} placeholder="t.ex. 0a1b2c3d4e5f…" />
+            <button type="button" className="btn sm" onClick={saveClientId} disabled={busy}>Spara</button>
           </div>
-          {connections.length > 0 ? (
-            <ul className="stack" style={{ listStyle: 'none', padding: 0, margin: 0, gap: 8 }}>
-              {connections.map((c) => (
-                <li key={c.id} className="row">
-                  <span className="grow">{c.name}{c.status ? <span className="muted small"> · {c.status}</span> : null}</span>
-                  <button type="button" className="btn ghost sm" onClick={() => testConnection(c.id)}>Testa</button>
-                  <button type="button" className="btn ghost sm danger" onClick={() => removeConnection(c.id)}>Ta bort</button>
-                </li>
-              ))}
-            </ul>
-          ) : <p className="muted small">Inga anslutna konton ännu.</p>}
-          <button type="button" className="btn soft sm" onClick={connect}>Anslut ett Spotify-konto</button>
-          <details>
-            <summary className="muted small">Engångsinställning</summary>
-            <p className="muted small" style={{ marginTop: 8 }}>
-              Registrera den här Redirect URI:n i din Spotify-app:
-              <br /><code style={{ wordBreak: 'break-all' }}>{redirectUri()}</code>
-            </p>
-          </details>
         </div>
-      ) : null}
+        <details>
+          <summary className="muted small">Så skapar du din Spotify-app (engångsinställning)</summary>
+          <ol className="muted small" style={{ marginTop: 8, paddingLeft: 18 }}>
+            <li>Öppna <code>developer.spotify.com/dashboard</code> och skapa en app.</li>
+            <li>Lägg till denna Redirect URI i appens inställningar:
+              <br /><code style={{ wordBreak: 'break-all' }}>{redirectUri()}</code></li>
+            <li>Kopiera appens <strong>Client ID</strong> och klistra in det ovan, tryck Spara.</li>
+            <li>Tryck «Anslut ett Spotify-konto» och logga in med ditt Premium-konto.</li>
+          </ol>
+        </details>
+        {spotifyClientId ? (
+          <>
+            {connections.length > 0 ? (
+              <ul className="stack" style={{ listStyle: 'none', padding: 0, margin: 0, gap: 8 }}>
+                {connections.map((c) => (
+                  <li key={c.id} className="row">
+                    <span className="grow">{c.name}{c.status ? <span className="muted small"> · {c.status}</span> : null}</span>
+                    <button type="button" className="btn ghost sm" onClick={() => testConnection(c.id)}>Testa</button>
+                    <button type="button" className="btn ghost sm danger" onClick={() => removeConnection(c.id)}>Ta bort</button>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="muted small">Inga anslutna konton ännu.</p>}
+            <button type="button" className="btn soft sm" onClick={connect}>Anslut ett Spotify-konto</button>
+          </>
+        ) : (
+          <p className="muted small">Lägg till ditt Klient-ID ovan för att kunna ansluta ett konto.</p>
+        )}
+      </div>
 
       {/* Danger zone */}
       <div className="card stack" style={{ borderColor: 'var(--danger)' }}>

@@ -41,6 +41,12 @@ const accountSchema = new mongoose.Schema({
   // scores accumulate across events). Set when an account plays as themselves.
   // Enforced 1:1 by the partial unique index below (one account per roster User).
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  // The host's OWN Spotify app Client ID (a public PKCE client — no secret).
+  // Per-user: each host registers their own Spotify app and pastes its Client ID
+  // here. There is NO global/shared Spotify key — this drives the account's own
+  // music-quiz connections (see SpotifyConnection.ownerId). Surfaced to its own
+  // account via /api/auth/me (Account.toJSON keeps it); never exposed publicly.
+  spotifyClientId: { type: String, trim: true, maxlength: 200, default: '' },
   // Shareable code for the friends feature. Lazy-generated on first request;
   // sparse so the many not-yet-generated accounts don't collide on null.
   friendCode: { type: String, unique: true, sparse: true, index: true },

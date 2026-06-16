@@ -3,7 +3,10 @@
 // question/music activities — offers a per-question breakdown (ResultsSummary).
 //
 // Props:
-//   activity : ActivityDto — { id, type, status, ... }.
+//   activity  : ActivityDto — { id, type, status, ... }.
+//   session   : the joined player's participant (or null) — drives the personal
+//               "Du: <answer> ✓/✗" reveal in the per-question breakdown.
+//   canManage : host can correct the answer key from the breakdown.
 //
 // The board comes from getScoreboard (rows arrive already ranked). For a finished
 // activity it is the final result; we still subscribe to ScoreboardUpdated in
@@ -15,7 +18,7 @@ import { ServerEvents } from '../config/socketEvents';
 import { ActivityType } from '../config/enums';
 import { ApiError } from '../api/client';
 import Spinner from './Spinner';
-import ResultsSummary from './ResultsSummary';
+import AnswerReview from './AnswerReview';
 
 function fmtNum(n) {
   const v = Number(n) || 0;
@@ -28,11 +31,12 @@ const isMapPin = (type) => type === ActivityType.MapPin;
 
 const MEDALS = { 1: '🥇', 2: '🥈', 3: '🥉' };
 
-export default function ResultsView({ activity }) {
+export default function ResultsView({ activity, session = null, canManage = false }) {
   const [board, setBoard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [showBreakdown, setShowBreakdown] = useState(false);
+  // Open the per-question facit by default for a host (they're here to correct).
+  const [showBreakdown, setShowBreakdown] = useState(!!canManage);
 
   useEffect(() => {
     let alive = true;
@@ -140,12 +144,14 @@ export default function ResultsView({ activity }) {
 
         {questionGame ? (
           <button className="btn ghost block" onClick={() => setShowBreakdown((v) => !v)}>
-            {showBreakdown ? 'Dölj svaren per fråga' : 'Visa svaren per fråga'}
+            {showBreakdown ? 'Dölj facit & svar' : 'Visa facit & svar'}
           </button>
         ) : null}
       </div>
 
-      {questionGame && showBreakdown ? <ResultsSummary activity={activity} /> : null}
+      {questionGame && showBreakdown ? (
+        <AnswerReview activity={activity} session={session} canManage={canManage} />
+      ) : null}
     </div>
   );
 }

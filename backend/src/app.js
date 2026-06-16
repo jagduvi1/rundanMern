@@ -38,6 +38,7 @@ const meRoute = require('./routes/me');
 const friendsRoute = require('./routes/friends');
 const invitesRoute = require('./routes/invites');
 const inviteAcceptRoute = require('./routes/inviteAccept');
+const sessionRoute = require('./routes/session');
 
 const app = express();
 // Trust exactly the proxy hops we control (TRUST_PROXY env; default 1 = plain
@@ -126,6 +127,8 @@ app.use('/uploads', express.static(uploadsDir, { maxAge: '7d', fallthrough: true
 // ── API routes ────────────────────────────────────────────────────────────────
 app.use('/api/health', healthRoute);
 app.use('/api/bootstrap', bootstrapRoute);
+// Access-code probe (gated by accessGate above — reaching it means the code passed).
+app.use('/api/session', sessionRoute);
 app.use('/api/auth', authRoute);
 app.use('/api/users', usersRoute);
 app.use('/api/me', meRoute);

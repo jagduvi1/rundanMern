@@ -72,12 +72,13 @@ router.post('/:id/music/import', activityManager, asyncHandler(async (req, res) 
     throw new RuleViolation("That doesn't look like a Spotify playlist link.");
   }
 
-  // The quiz's selected connection, or any saved one (the import needs an
-  // authenticated account — the playlist API is auth-only).
+  // The quiz's selected connection, or any of the CALLER'S OWN saved connections
+  // (the import needs an authenticated account — the playlist API is auth-only;
+  // connections are per-user so we never reach for someone else's).
   let connId = activity.spotifyConnectionId;
-  if (!connId) {
+  if (!connId && req.user) {
     const { SpotifyConnection } = require('../models');
-    const any = await SpotifyConnection.findOne().select('_id').lean();
+    const any = await SpotifyConnection.findOne({ ownerId: req.user.id }).select('_id').lean();
     connId = any ? any._id : null;
   }
   if (!connId) {

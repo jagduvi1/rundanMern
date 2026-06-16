@@ -96,7 +96,7 @@ async function seedIfEmpty() {
       + 'placering ger poäng (1:a = antal lag) till båda i laget. Högsta individuella total vinner!',
     teamSize: 2,
     scoring: EventScoring.Placement,
-    joinCode: await uniqueJoinCode(Event),
+    joinCode: await uniqueJoinCode([Activity, Event]),
     createdUtc: now,
   });
 
@@ -110,13 +110,12 @@ async function seedIfEmpty() {
     })),
   );
 
-  // Pre-generate the 8 join codes (unique within Activity) before building docs.
-  // uniqueJoinCode checks the DB each time; generate sequentially so they don't
-  // collide with one another either.
+  // Pre-generate the 8 join codes (unique across events + activities) before
+  // building docs. uniqueJoinCode checks the DB each time; generate sequentially.
   const codes = [];
   for (let i = 0; i < 8; i += 1) {
     // eslint-disable-next-line no-await-in-loop
-    codes.push(await uniqueJoinCode(Activity));
+    codes.push(await uniqueJoinCode([Activity, Event]));
   }
 
   const activityDocs = [];

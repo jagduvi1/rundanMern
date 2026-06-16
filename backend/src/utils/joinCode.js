@@ -14,14 +14,18 @@ function randomCode(length = 5) {
   return out;
 }
 
-// Generate a code unique within the given model's `joinCode` field. Retries on
-// the rare collision; widens length after several attempts as a safety valve.
-async function uniqueJoinCode(Model, length = 5) {
+// Generate a code unique across the given model(s)' `joinCode` field. Pass a
+// single Mongoose model or an ARRAY of models — join codes must be unique across
+// BOTH events and activities (a player types one code; the lookup tries events
+// first, so a shared code would shadow the other), matching the .NET
+// JoinCodeGenerator. Retries on the rare collision; widens length as a safety valve.
+async function uniqueJoinCode(modelOrModels, length = 5) {
+  const models = Array.isArray(modelOrModels) ? modelOrModels : [modelOrModels];
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const code = randomCode(attempt < 8 ? length : length + 1);
     // eslint-disable-next-line no-await-in-loop
-    const exists = await Model.exists({ joinCode: code });
-    if (!exists) return code;
+    const taken = await Promise.all(models.map((M) => M.exists({ joinCode: code })));
+    if (!taken.some(Boolean)) return code;
   }
   // Extremely unlikely fallback — timestamp-suffixed.
   return `${randomCode(length)}${Date.now().toString(36).slice(-2).toUpperCase()}`;

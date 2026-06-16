@@ -169,10 +169,16 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // Merge a partial update into the current user (e.g. after the host saves their
+  // own Spotify Client ID) without a full /me round-trip.
+  const patchUser = useCallback((partial) => {
+    setUser((u) => (u ? { ...u, ...partial } : u));
+  }, []);
+
   const isAdmin = !!user?.roles?.includes('admin');
   const value = {
     user, token, loading, isAdmin, register, login, logout,
-    consumeMagicLink, setPassword, requestMagicLink,
+    consumeMagicLink, setPassword, requestMagicLink, patchUser,
   };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

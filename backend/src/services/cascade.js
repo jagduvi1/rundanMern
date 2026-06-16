@@ -8,6 +8,21 @@ const {
   ActivityPhoto, EventMember, EventViewer, Slap, ChatMessage, PushSubscription, User, Account,
   HitsterGame, Invite,
 } = require('../models');
+const { deleteUploads } = require('../config/paths');
+
+// Gather an activity's uploaded-file URLs (its image + every photo on its wall) so
+// they can be unlinked from disk when the activity/event is deleted — Mongo only
+// drops the DB rows, the original .NET also removed the files (StoragePaths).
+async function activityUploadUrls(activityId) {
+  const [activity, photos] = await Promise.all([
+    Activity.findById(activityId).select('imageUrl').lean(),
+    ActivityPhoto.find({ activityId }).select('url').lean(),
+  ]);
+  const urls = [];
+  if (activity && activity.imageUrl) urls.push(activity.imageUrl);
+  for (const p of photos) if (p.url) urls.push(p.url);
+  return urls;
+}
 
 async function deleteQuestionCascade(questionId) {
   await Answer.deleteMany({ questionId });
@@ -41,15 +56,42 @@ async function deleteActivityChildren(activityId) {
   ]);
 }
 
+// Unlink uploaded files, but ONLY those that NO surviving row still references.
+// A library activity and its event copy share the same imageUrl string, so
+// deleting one must not unlink the file the other still shows; this also blocks a
+// host who points their own activity at someone else's /uploads/<file> and then
+// deletes it — the victim's row still references it, so it's skipped.
+async function unlinkUnreferencedUploads(urls) {
+  const unique = [...new Set((urls || []).filter(Boolean))];
+  const toDelete = [];
+  for (const url of unique) {
+    // eslint-disable-next-line no-await-in-loop
+    const stillUsed = (await Activity.exists({ imageUrl: url }))
+      // eslint-disable-next-line no-await-in-loop
+      || (await ActivityPhoto.exists({ url }));
+    if (!stillUsed) toDelete.push(url);
+  }
+  await deleteUploads(toDelete);
+}
+
 async function deleteActivityCascade(activityId) {
+  const files = await activityUploadUrls(activityId);
   await deleteActivityChildren(activityId);
   await Activity.deleteOne({ _id: activityId });
+  await unlinkUnreferencedUploads(files); // unlink files no other row still uses
 }
 
 async function deleteEventCascade(eventId) {
   const activityIds = await Activity.find({ eventId }).distinct('_id');
+  // Gather every uploaded file (event image + each activity's image + photos)
+  // BEFORE the rows are deleted, then unlink them after the cascade.
+  const event = await Event.findById(eventId).select('imageUrl').lean();
+  const files = [];
+  if (event && event.imageUrl) files.push(event.imageUrl);
   // eslint-disable-next-line no-restricted-syntax
   for (const aid of activityIds) {
+    // eslint-disable-next-line no-await-in-loop
+    files.push(...await activityUploadUrls(aid));
     // eslint-disable-next-line no-await-in-loop
     await deleteActivityChildren(aid);
   }
@@ -63,6 +105,7 @@ async function deleteEventCascade(eventId) {
     Invite.deleteMany({ eventId }),
   ]);
   await Event.deleteOne({ _id: eventId });
+  await unlinkUnreferencedUploads(files);
 }
 
 // Deleting a roster user: remove their event memberships, pull them out of any

@@ -4,7 +4,17 @@ const mongoose = require('mongoose');
 // exact title/artist/year. Tokens are SERVER-ONLY: refreshToken/accessToken use
 // select:false so they never leave the API by accident; serializers also strip
 // them. Referenced loosely by Activity.spotifyConnectionId (no cascade).
+//
+// PER-USER: a connection is OWNED by the Account that created it (`ownerId`) and
+// refreshes against that account's own `spotifyClientId`. Hosts only ever see and
+// manage their own connections.
 const spotifyConnectionSchema = new mongoose.Schema({
+  ownerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account',
+    required: true,
+    index: true,
+  },
   name: { type: String, required: true, maxlength: 120 }, // defaults to Spotify display name
   spotifyUserId: { type: String, maxlength: 120, default: '' }, // account id, for dedupe
   refreshToken: { type: String, required: true, maxlength: 500, select: false },

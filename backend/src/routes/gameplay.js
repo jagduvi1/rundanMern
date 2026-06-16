@@ -25,6 +25,7 @@ const { canManageActivity, activityManager } = require('../middleware/eventAuth'
 const { resolveParticipantForActivity, HEADER: PARTICIPANT_HEADER } = require('../middleware/participant');
 const { pushScoreboard } = require('../services/scoreboard');
 const scoring = require('../services/scoring');
+const { tryAutoFinishScoreGame } = require('../services/autoFinish');
 const { notifyActivityFinished, notify } = require('../services/push');
 const { uploadsDir } = require('../config/paths');
 const emit = require('../socket/emit');
@@ -159,9 +160,18 @@ router.post('/:id/answers', asyncHandler(async (req, res) => {
   const totalQuestions = await Question.countDocuments({ activityId: activity._id });
 
   // Already answered? Return the original result (no resubmission / score farming).
+  // Still push the scoreboard + re-check auto-finish like the original always did,
+  // so a duplicate submit after the last expected answer doesn't strand a finished
+  // quiz un-finalized (the MusicQuiz time-finish race).
   const existing = await Answer.findOne({ questionId: question._id, participantId: participant._id });
   if (existing) {
-    return res.json(await buildAnswerResult(participant._id, question, existing, totalQuestions, isMusic));
+    const dup = await buildAnswerResult(participant._id, question, existing, totalQuestions, isMusic);
+    await pushScoreboard(id);
+    if (await tryAutoFinishQuestions(activity)) {
+      emit.activityStatusChanged(id, { activityId: idStr(activity), status: activity.status });
+      notifyActivityFinished(activity._id).catch(() => {});
+    }
+    return res.json(dup);
   }
 
   // Score the submission (pure). scoreAnswer throws RuleViolation on bad input.
@@ -304,47 +314,8 @@ async function recordScore(activity, req) {
   });
 }
 
-// ScoreGame / Memory auto-finish (port of TryAutoFinishScoreGameAsync). Event team
-// games only — that's where "complete" is well-defined. Returns true on transition.
-async function tryAutoFinishScoreGame(activity) {
-  if (![ActivityType.ScoreGame, ActivityType.Memory].includes(activity.type)
-    || activity.status !== ActivityStatus.Live || !activity.eventId) {
-    return false;
-  }
-
-  const teams = await Participant.find({ activityId: activity._id, isTeam: true }).select('_id members').lean();
-  if (teams.length === 0) return false;
-  const teamIds = teams.map((t) => t._id);
-
-  let expected;
-  let recorded;
-  if (activity.scoreEntryMode === ScoreEntryMode.PerPlayer) {
-    // One score per player on every team.
-    expected = teams.reduce((sum, t) => sum + (t.members || []).length, 0);
-    const rows = await ScoreEntry.find({
-      activityId: activity._id, participantId: { $in: teamIds }, userId: { $ne: null },
-    }).select('participantId userId').lean();
-    const seen = new Set(rows.map((s) => `${idStr(s.participantId)}:${idStr(s.userId)}`));
-    recorded = seen.size;
-  } else {
-    // Whole team per round; time/length is a single reading (no rounds).
-    const rounds = [Measurement.TimeSeconds, Measurement.Millimetres].includes(activity.measurement)
-      ? 1 : Math.max(1, activity.roundCount);
-    expected = teamIds.length * rounds;
-    const rows = await ScoreEntry.find({
-      activityId: activity._id, participantId: { $in: teamIds }, round: { $gte: 1, $lte: rounds },
-    }).select('participantId round').lean();
-    const seen = new Set(rows.map((s) => `${idStr(s.participantId)}:${s.round}`));
-    recorded = seen.size;
-  }
-
-  if (expected <= 0 || recorded < expected) return false;
-
-  activity.status = ActivityStatus.Finished;
-  activity.finishedUtc = new Date();
-  await activity.save();
-  return true;
-}
+// ScoreGame / Memory auto-finish now lives in services/autoFinish.js so the
+// dedicated Memory result path can reuse it (imported as tryAutoFinishScoreGame).
 
 // POST /api/activities/:id/scores — participant of THIS activity acts as scorekeeper.
 // RecordScoreRequest { participantId, userId?, round(default 1), points, note? }.
@@ -465,6 +436,37 @@ router.delete('/:id/photos/:photoId', asyncHandler(async (req, res) => {
   } catch { /* ignore */ }
 
   res.status(204).end();
+}));
+
+// GET /api/activities/:id/teams — the persisted partner-mixer teams for THIS
+// activity (port of EventEndpoints' GET /api/activities/{id}/teams). Each team is
+// a TeamDto { activityId, participantId, name, members:[{id,name}] }; participantId
+// is the scoring key and each member id is its roster userId. Drives the host's
+// BouleBoard so they can record for every team / member from one device. Returns
+// [] for standalone / no-roster activities. Access-gated only — a co-host scoring
+// device may hold just a participant/member token, so no manager gate here.
+router.get('/:id/teams', asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const teams = await Participant.find({ activityId: id, isTeam: true }).sort({ _id: 1 }).lean();
+  if (teams.length === 0) return res.json([]);
+
+  const memberIds = [...new Set(
+    teams.flatMap((t) => (t.members || []).map((m) => String(m.userId)).filter(Boolean)),
+  )];
+  const users = memberIds.length
+    ? await User.find({ _id: { $in: memberIds } }).select('name').lean()
+    : [];
+  const nameById = new Map(users.map((u) => [String(u._id), u.name]));
+
+  res.json(teams.map((t) => ({
+    activityId: idStr(id),
+    participantId: idStr(t),
+    name: t.displayName,
+    members: (t.members || []).map((m) => ({
+      id: idStr(m.userId),
+      name: nameById.get(String(m.userId)) || '',
+    })),
+  })));
 }));
 
 module.exports = router;

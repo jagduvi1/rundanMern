@@ -10,6 +10,10 @@ export const getMyAnswers = (activityId) =>
 export const recordScore = (activityId, body) =>
   apiPost(`/activities/${activityId}/scores`, body, { activityId });
 export const getScores = (activityId) => apiGet(`/activities/${activityId}/scores`, { activityId });
+// The persisted partner-mixer teams for ONE activity (TeamDto[]: participantId +
+// members[{id,name}]) — drives the host BouleBoard's roster scorekeeping.
+export const getActivityTeams = (activityId) =>
+  apiGet(`/activities/${activityId}/teams`, { activityId });
 export const deleteScore = (activityId, scoreId) =>
   apiDelete(`/activities/${activityId}/scores/${scoreId}`, { activityId });
 

@@ -7,20 +7,21 @@
 // Realtime + geolocation are set up in effects and torn down on unmount; the page
 // keys off :id so a route-param change fully remounts (rundan reloaded manually).
 //
-// Contract gaps vs doc 09 (no MERN endpoint): event-wide "add from library",
-// "simulate all" as one call (we loop per-activity simulate instead), and a
-// score-clearing "restart event" (the closest supported op is "reset all
-// activities" to Draft/Open, which keeps scores) — noted inline.
+// Host ops supported: add-from-library (POST /events/:id/activities/from-library/
+// :sourceId), restart-event = all→Draft + clear scores + optional clear-chat
+// (POST /events/:id/reset-results?clearChat), and status-only "reset all" (which
+// keeps scores). "Simulate all" loops per-activity simulate on the event route.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   getEvent, getStandings, getTeams, reshuffleTeams, setMembers, updateEvent,
   setEventCode, reorderActivities, setActivitiesStatus, arrive, joinEvent, claimEvent,
   claimEventAsMe, addEventAdmin, removeEventAdmin, deleteEvent,
+  addActivityFromLibrary, restartEvent,
 } from '../api/events';
 import { inviteToEvent } from '../api/invites';
 import { getFriends } from '../api/me';
-import { createActivity, setActivityStatus, deleteActivity } from '../api/activities';
+import { createActivity, setActivityStatus, deleteActivity, listActivities } from '../api/activities';
 import { simulate, resetResults } from '../api/simulation';
 import {
   getChat, postChat, registerViewer, getActivitySlap,
@@ -38,7 +39,7 @@ import {
 import {
   saveLastEventId, getEventName, saveEventName, getEventUserId, saveEventUserId,
   isViewer as readViewer, getViewerName, getViewerToken, setViewer,
-  isProxying, getProxy, isPreview, setPreview,
+  isProxying, getProxy, setProxy, isPreview, setPreview,
 } from '../utils/appState';
 import { useGeolocation, distanceMeters } from '../utils/useGeolocation';
 import { vibrate } from '../utils/vibrate';
@@ -116,6 +117,9 @@ export default function Event() {
 
   const proxy = getProxy();
   const proxyHere = isProxying() && proxy?.eventId === String(id);
+  // The effective "joined as" name: while proxying, the proxied player (overlay)
+  // wins over this device's own joined name — without ever writing device keys.
+  const joinedName = proxyHere ? (proxy?.name || '') : eventName;
   // "Preview as player": a host can flip into the exact player view to see what
   // their guests see. While previewing, canManage is false so the host branch is
   // skipped; a banner lets them flip back.
@@ -349,6 +353,32 @@ export default function Event() {
     } catch (err) {
       show(err?.message || 'Kunde inte gå med.');
     } finally {
+      setBusy(false);
+    }
+  };
+
+  // "Spela för en spelare" (host proxy) — take over a roster player whose phone
+  // died: claim THEM (their per-activity tokens + member token persist to this
+  // device), remember it as the active proxy, then hard-reload so every page
+  // re-reads the proxied identity. Stop is offered in the shell proxy bar.
+  const playAs = async (m) => {
+    setBusy(true);
+    try {
+      const res = await claimEvent(event.joinCode, m.id);
+      // OVERLAY ONLY — store the proxied identity + per-activity tokens in the proxy
+      // object; do NOT persistClaim (that would overwrite the host's own device
+      // session/member keys and leak after Stop). The client token getters read
+      // this overlay first; clearing it on Stop restores the host cleanly.
+      setProxy({
+        eventId: String(id),
+        userId: res.userId,
+        name: res.displayName,
+        memberToken: res.memberToken,
+        slots: (res.slots || []).map((s) => ({ activityId: s.activityId, token: s.token })),
+      });
+      window.location.reload();
+    } catch (err) {
+      show(err?.message || 'Kunde inte spela för spelaren — kontrollera att de finns i evenemangets roster.');
       setBusy(false);
     }
   };
@@ -711,8 +741,8 @@ export default function Event() {
 
   // Player identity surfaces — split out of one flat block so each role only
   // sees what's relevant (no competing "how do you want to join" cards).
-  const joinedStatusBlock = eventName ? (
-    <div className="card center muted">Du spelar som <b>{eventName}</b>.</div>
+  const joinedStatusBlock = joinedName ? (
+    <div className="card center muted">Du spelar som <b>{joinedName}</b>.</div>
   ) : null;
 
   const viewerStatusBlock = (
@@ -837,6 +867,26 @@ export default function Event() {
           navigate={navigate}
         />
 
+        {/* Play for a player (host proxy): take over someone whose phone died. */}
+        {(event.members || []).length > 0 ? (
+          <details className="card">
+            <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Spela för en spelare</summary>
+            <div className="stack" style={{ marginTop: '.6rem' }}>
+              <p className="muted small" style={{ margin: 0 }}>
+                Om någons telefon dör eller får slut på batteri — ta över här. Du svarar, poängsätter och
+                nyper som dem på din egen enhet. Tryck «Sluta» i topplisten för att bli dig själv igen.
+              </p>
+              <div className="stack" style={{ gap: 6 }}>
+                {(event.members || []).map((m) => (
+                  <button key={m.id} type="button" className="btn block secondary" onClick={() => playAs(m)} disabled={busy}>
+                    Spela som {m.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </details>
+        ) : null}
+
         {/* Optional: the host can also play. Small, secondary, no big join cards. */}
         {!eventName && !viewer ? (
           <div className="card stack">
@@ -854,8 +904,8 @@ export default function Event() {
     );
   }
 
-  // ALREADY JOINED or VIEWER: small status line, then play.
-  if (eventName || viewer) {
+  // ALREADY JOINED or VIEWER (or a host proxying a player): status line, then play.
+  if (joinedName || viewer) {
     return (
       <>
         {toast}
@@ -898,6 +948,11 @@ function HostControls({
   const [newTitle, setNewTitle] = useState('');
   const [newType, setNewType] = useState(ActivityType.Quiz);
   const [localBusy, setLocalBusy] = useState(false);
+  // Library copy + event restart
+  const [library, setLibrary] = useState([]);
+  const [libSourceId, setLibSourceId] = useState('');
+  const [confirmRestart, setConfirmRestart] = useState(false);
+  const [restartClearChat, setRestartClearChat] = useState(false);
 
   // Players & admins
   const [allUsers, setAllUsers] = useState([]);
@@ -929,6 +984,8 @@ function HostControls({
     if (event.teamShuffle === TeamShuffle.FixedForEvent) {
       getTeams(id).then(setFixedTeams).catch(() => {});
     }
+    // Reusable public activities (the "add from library" picker).
+    listActivities().then((rows) => setLibrary((rows || []).filter((a) => a.isPublic))).catch(() => {});
   }, [id, event.teamShuffle]);
 
   const addActivity = async () => {
@@ -941,6 +998,35 @@ function HostControls({
       await onReload();
     } catch (err) {
       onToast(err?.message || 'Kunde inte lägga till aktivitet.');
+    } finally {
+      setLocalBusy(false);
+    }
+  };
+
+  const addFromLibrary = async () => {
+    if (!libSourceId) return;
+    setLocalBusy(true);
+    try {
+      await addActivityFromLibrary(id, libSourceId);
+      setLibSourceId('');
+      await onReload();
+      onToast('Kopia tillagd från biblioteket.');
+    } catch (err) {
+      onToast(err?.message || 'Kunde inte lägga till från biblioteket.');
+    } finally {
+      setLocalBusy(false);
+    }
+  };
+
+  const doRestart = async () => {
+    setConfirmRestart(false);
+    setLocalBusy(true);
+    try {
+      await restartEvent(id, restartClearChat);
+      await onReload();
+      onToast(restartClearChat ? 'Evenemanget startat om (chatt rensad).' : 'Evenemanget startat om.');
+    } catch (err) {
+      onToast(err?.message || 'Kunde inte starta om evenemanget.');
     } finally {
       setLocalBusy(false);
     }
@@ -1113,6 +1199,19 @@ function HostControls({
           </select>
           <button type="button" className="btn block success" onClick={addActivity} disabled={anyBusy || !newTitle.trim()}>Lägg till i evenemanget</button>
 
+          <h3 style={{ margin: '.5rem 0 0' }}>…eller lägg till från aktivitetsbiblioteket</h3>
+          {library.length === 0 ? (
+            <p className="muted small">Inga återanvändbara (publika) aktiviteter ännu.</p>
+          ) : (
+            <div className="row wrap">
+              <select value={libSourceId} onChange={(e) => setLibSourceId(e.target.value)} className="grow">
+                <option value="">Välj en publik aktivitet…</option>
+                {library.map((lib) => <option key={lib.id} value={lib.id}>{lib.title}</option>)}
+              </select>
+              <button type="button" className="btn sm" onClick={addFromLibrary} disabled={anyBusy || !libSourceId}>Lägg till en kopia</button>
+            </div>
+          )}
+
           <h3 style={{ margin: '.5rem 0 0' }}>Testkör</h3>
           <p className="muted small">Simulera alla aktiviteter med slumpresultat för att granska tavlorna före det riktiga.</p>
           <div className="row wrap">
@@ -1125,6 +1224,25 @@ function HostControls({
             <button type="button" className="btn sm ghost" onClick={() => onResetAll(ActivityStatus.Draft)} disabled={anyBusy}>Alla till utkast</button>
             <button type="button" className="btn sm ghost" onClick={() => onResetAll(ActivityStatus.Open)} disabled={anyBusy}>Alla till öppna</button>
           </div>
+
+          <h3 style={{ margin: '.5rem 0 0' }}>Starta om evenemanget</h3>
+          <p className="muted small">
+            Sätter alla aktiviteter till utkast <strong>och rensar all poäng</strong> — som inför en ny omgång.
+          </p>
+          <label className="row small" style={{ gap: 6, alignItems: 'center' }}>
+            <input type="checkbox" checked={restartClearChat} onChange={(e) => setRestartClearChat(e.target.checked)} />
+            Rensa även chatten
+          </label>
+          {confirmRestart ? (
+            <div className="row wrap">
+              <button type="button" className="btn sm danger" onClick={doRestart} disabled={anyBusy}>Ja, starta om &amp; rensa poäng</button>
+              <button type="button" className="btn sm ghost" onClick={() => setConfirmRestart(false)} disabled={anyBusy}>Avbryt</button>
+            </div>
+          ) : (
+            <div className="row wrap">
+              <button type="button" className="btn sm ghost danger" onClick={() => setConfirmRestart(true)} disabled={anyBusy}>Starta om evenemanget</button>
+            </div>
+          )}
         </div>
       </details>
 

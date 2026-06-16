@@ -19,6 +19,12 @@ export const reorderActivities = (id, activityIds) =>
   apiPut(`/events/${id}/reorder`, { activityIds }, { eventId: id });
 export const setActivitiesStatus = (id, status) =>
   apiPut(`/events/${id}/activities/status`, { status }, { eventId: id });
+// Deep-copy a public library activity into this event as a fresh Draft.
+export const addActivityFromLibrary = (id, sourceId) =>
+  apiPost(`/events/${id}/activities/from-library/${sourceId}`, {}, { eventId: id });
+// Restart the whole event: every activity → Draft AND clear all scores; optional chat wipe.
+export const restartEvent = (id, clearChat = false) =>
+  apiPost(`/events/${id}/reset-results${clearChat ? '?clearChat=true' : ''}`, {}, { eventId: id });
 export const getStandings = (id) => apiGet(`/events/${id}/standings`, { eventId: id });
 export const getTeams = (id) => apiGet(`/events/${id}/teams`, { eventId: id });
 export const reshuffleTeams = (id) => apiPost(`/events/${id}/teams/reshuffle`, {}, { eventId: id });

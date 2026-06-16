@@ -15,7 +15,7 @@ const multer = require('multer');
 // server-side seed code. `upload` uses `canUpload` (any host account / event-admin
 // member token; open in dev) — faithfully NOT admin-gated.
 const env = require('../config/env');
-const { uploadsDir } = require('../config/paths');
+const { uploadsDir, clearUploads } = require('../config/paths');
 const models = require('../models');
 const { RuleViolation, asyncHandler } = require('../middleware/error');
 const { optionalAuth, requireAdmin, invalidateAccount } = require('../middleware/auth');
@@ -139,6 +139,10 @@ router.post(
     }
 
     await wipeDomainCollections();
+    // Drop orphaned uploaded files too — the wipe removes the DB rows that
+    // referenced them, so the images would otherwise linger on disk forever
+    // (port of the .NET ClearUploads on clean-and-seed).
+    await clearUploads();
     // The seeders only insert because we just emptied the store (each no-ops on a
     // non-empty DB). Library first, then the demo day — matching the .NET order.
     const libSeeded = await librarySeeder.seedIfEmpty();

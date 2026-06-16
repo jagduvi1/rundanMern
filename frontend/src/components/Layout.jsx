@@ -10,12 +10,23 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useBootstrap } from '../contexts/BootstrapContext';
+import { getProxy, isProxying, clearProxy } from '../utils/appState';
 import AppMenu from './AppMenu';
 import VerifyBanner from './VerifyBanner';
+
+// Stop a host proxy ("playing for X"). The proxy is a read-only OVERLAY — the
+// proxied tokens live only in the proxy object (never written to the device's own
+// session/member keys), so clearing it instantly restores the host's own identity
+// with nothing to leak. Hard-reload so every mounted page re-reads tokens.
+function stopProxy() {
+  clearProxy();
+  window.location.reload();
+}
 
 export default function Layout({ children }) {
   const { appName } = useBootstrap();
   const [menuOpen, setMenuOpen] = useState(false);
+  const proxy = getProxy();
 
   return (
     <div className="app-shell">
@@ -43,6 +54,22 @@ export default function Layout({ children }) {
         </Link>
         <span className="grow" />
       </header>
+
+      {isProxying() ? (
+        <div
+          className="proxy-bar"
+          role="status"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px',
+            background: 'var(--accent)', color: '#fff', fontSize: '.9rem',
+          }}
+        >
+          <span className="grow">
+            Spelar för <b>{proxy?.name}</b> — svar och poäng räknas för dem.
+          </span>
+          <button type="button" className="btn sm" onClick={stopProxy}>Sluta</button>
+        </div>
+      ) : null}
 
       <VerifyBanner />
 

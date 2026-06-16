@@ -89,6 +89,9 @@ router.post('/:id/reset-results', activityManager, asyncHandler(async (req, res)
   const id = activity._id;
 
   await simulation.clearResults(activity);
+  // Drop generated teams so a re-open re-forms them from the CURRENT roster
+  // (ensureTeams is idempotent — without this, a stale line-up would persist).
+  await Participant.deleteMany({ activityId: id, isTeam: true });
   activity.status = ActivityStatus.Draft;
   activity.startedUtc = null;
   activity.finishedUtc = null;

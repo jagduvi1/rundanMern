@@ -21,6 +21,7 @@ const { resolveParticipantForActivity } = require('../middleware/participant');
 const { activityManager } = require('../middleware/eventAuth');
 const { pushScoreboard } = require('../services/scoreboard');
 const { notifyActivityFinished } = require('../services/push');
+const { tryAutoFinishScoreGame } = require('../services/autoFinish');
 const { haversineKm } = require('../services/geo');
 const wordgame = require('../services/wordgame');
 const emit = require('../socket/emit');
@@ -199,6 +200,15 @@ router.post('/:id/memory/result', asyncHandler(async (req, res) => {
   });
 
   await pushScoreboard(id);
+
+  // Auto-finalize once every team has cleared the board — so an event Memory game
+  // self-finishes and the activity-finished push + slap ceremony fire (matching
+  // the original, where the Memory result went through /scores).
+  if (await tryAutoFinishScoreGame(activity)) {
+    emit.activityStatusChanged(id, { activityId: idStr(activity), status: activity.status });
+    notifyActivityFinished(activity._id).catch(() => {});
+  }
+
   res.json({ ok: true });
 }));
 

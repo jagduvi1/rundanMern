@@ -1,24 +1,25 @@
 // BouleBoard — round-based / measured score entry plus a live board. Used by
-// Boule-style measured games AND the generic ScoreGame (same machinery). A
-// scorekeeper (the host, or the player on this device) records a score per round;
-// everyone watching sees the running board (and, for timed games, a live shared
-// stopwatch relayed over sockets so all viewers tick from the same start).
+// Boule-style measured games AND the generic ScoreGame (same machinery).
 //
-// The React port of rundan's BouleBoard.razor, adapted to this stack's props:
-// instead of a roster of participants it takes the single `participant` on this
-// device (its own score entry) and the server-combined `canManage` flag. The
-// board below shows every recorded score (from getScores), newest first.
+// The React port of rundan's BouleBoard.razor. A scorekeeper records a result per
+// UNIT (team / standalone player / per-team member). A HOST (canManage) scores the
+// whole roster from one device; a plain player scores only their own unit. For
+// timed games each unit has its own stopwatch, whose start/stop is relayed over
+// sockets so every watching device ticks from the same start.
 //
 // Props:
-//   activity   : ActivityDto — { id, measurement, measuresTime, measuresLength,
-//                scoringMode, scoreEntryMode, roundCount, courts, courtLabel, ... }.
-//   participant: ParticipantDto — { id, displayName } (whose score is entered).
-//   canManage  : boolean — host (server-combined upstream); may delete scores.
+//   activity    : ActivityDto — { id, measurement, scoringMode, scoreEntryMode,
+//                 roundCount, courts, courtLabel, eventId, ... }.
+//   participant : ParticipantDto — the unit on THIS device (a player's own team).
+//   participants: ParticipantDto[] — the activity roster (for a host on a
+//                 standalone game with no generated teams).
+//   canManage   : boolean — host: scores every unit + may delete scores.
 //
-// ScoreEntryDto: { id, participantId, participantName, userId?, userName?, round,
-//   points, note?, recordedUtc }
-import { useEffect, useRef, useState } from 'react';
-import { recordScore, getScores, deleteScore } from '../api/gameplay';
+// TeamDto (GET /activities/:id/teams): { activityId, participantId, name,
+//   members:[{id,name}] }. ScoreEntryDto: { id, participantId, participantName,
+//   userId?, userName?, round, points, note?, recordedUtc }.
+import { useEffect, useRef, useState, useMemo } from 'react';
+import { recordScore, getScores, deleteScore, getActivityTeams } from '../api/gameplay';
 import { getSocket, startTimer, stopTimer } from '../utils/socket';
 import { ServerEvents } from '../config/socketEvents';
 import { Measurement, ScoringMode, ScoreEntryMode } from '../config/enums';
@@ -32,7 +33,9 @@ function clock(seconds) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export default function BouleBoard({ activity, participant, canManage = false }) {
+export default function BouleBoard({
+  activity, participant, participants = [], canManage = false,
+}) {
   const isPoints = activity.measurement === Measurement.Points;
   const measuresTime = activity.measurement === Measurement.TimeSeconds
     || activity.measuresTime === true;
@@ -41,38 +44,63 @@ export default function BouleBoard({ activity, participant, canManage = false })
   const perPlayer = activity.scoreEntryMode === ScoreEntryMode.PerPlayer;
   const unitSuffix = measuresTime ? 's' : measuresLength ? 'mm' : '';
 
-  // The device may keep score if it's the host or it's the joined player.
   const canScore = canManage || participant != null;
-  const key = participant ? String(participant.id) : 'me';
 
+  const [teams, setTeams] = useState([]);
   const [history, setHistory] = useState([]);
   const [round, setRound] = useState(1);
-  const [pending, setPending] = useState(0); // stepper / number-entry value
+  const [pending, setPending] = useState({}); // key -> stepper / number value
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
 
-  // Stopwatch state: this device's running start (ms) + remote scorekeepers'.
-  const [swStart, setSwStart] = useState(null); // ms or null (local)
-  const [swAccum, setSwAccum] = useState(0); // seconds accumulated across paused segments
-  const [remoteStart, setRemoteStart] = useState(null); // Date ms or null
+  // Per-unit stopwatch: local { start: ms|null, accum: sec } and remote start ms.
+  const [sw, setSw] = useState({});
+  const [remote, setRemote] = useState({});
   const [, setNowTick] = useState(0); // forces re-render while a clock runs
   const tickRef = useRef(null);
   const aliveRef = useRef(true);
+  const swRef = useRef(sw);
+  swRef.current = sw;
 
   const historyMaxRound = history.length > 0 ? Math.max(...history.map((s) => s.round)) : 1;
   const maxRound = perPlayer ? 1 : Math.max(Math.max(1, activity.roundCount || 1), historyMaxRound);
 
-  // ── Load history ─────────────────────────────────────────────────────────────
+  // ── The units to score ───────────────────────────────────────────────────────
+  const units = useMemo(() => {
+    if (teams.length > 0) {
+      if (perPlayer) {
+        const out = [];
+        for (const t of teams) {
+          for (const m of t.members || []) {
+            out.push({ key: `${t.participantId}:${m.id}`, participantId: t.participantId, userId: m.id, name: `${t.name} · ${m.name}` });
+          }
+        }
+        return out;
+      }
+      return teams.map((t) => ({ key: String(t.participantId), participantId: t.participantId, name: t.name }));
+    }
+    // No generated teams (standalone game): a host scores the full roster.
+    if (canManage && (participants || []).length > 0) {
+      return participants.map((p) => ({ key: String(p.id), participantId: p.id, name: p.displayName }));
+    }
+    if (participant) return [{ key: String(participant.id), participantId: participant.id, name: participant.displayName }];
+    return [];
+  }, [teams, perPlayer, participants, participant, canManage]);
+
+  // A host keeps score for everyone; a plain player only for their own unit.
+  const visibleUnits = useMemo(() => (
+    canManage ? units : units.filter((u) => participant && String(u.participantId) === String(participant.id))
+  ), [canManage, units, participant]);
+
+  // ── Loaders ────────────────────────────────────────────────────────────────
   async function loadHistory() {
     try {
       const list = await getScores(activity.id);
       const arr = Array.isArray(list) ? list : [];
       if (aliveRef.current) {
         setHistory(arr);
-        if (arr.length > 0) {
-          setRound((r) => Math.max(r, Math.max(...arr.map((s) => s.round))));
-        }
+        if (arr.length > 0) setRound((r) => Math.max(r, Math.max(...arr.map((s) => s.round))));
       }
     } catch (e) {
       if (aliveRef.current && !(e instanceof ApiError && e.status === 404)) {
@@ -84,11 +112,19 @@ export default function BouleBoard({ activity, participant, canManage = false })
   useEffect(() => {
     aliveRef.current = true;
     setHistory([]);
-    setPending(0);
+    setPending({});
+    setSw({});
+    setRemote({});
     setRound(1);
-    setSwStart(null);
-    setSwAccum(0);
     loadHistory();
+    // Persisted per-activity teams (event games); [] for standalone.
+    if (activity.eventId) {
+      getActivityTeams(activity.id)
+        .then((rows) => { if (aliveRef.current) setTeams(Array.isArray(rows) ? rows : []); })
+        .catch(() => { if (aliveRef.current) setTeams([]); });
+    } else {
+      setTeams([]);
+    }
     return () => {
       aliveRef.current = false;
       if (tickRef.current) clearInterval(tickRef.current);
@@ -96,7 +132,7 @@ export default function BouleBoard({ activity, participant, canManage = false })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activity.id]);
 
-  // ── Sockets: refresh on ScoreboardUpdated + live timer relay ─────────────────
+  // ── Sockets: refresh on ScoreboardUpdated + live per-unit timer relay ────────
   useEffect(() => {
     let socket = null;
     let alive = true;
@@ -106,14 +142,15 @@ export default function BouleBoard({ activity, participant, canManage = false })
     };
     const onTimerStarted = (t) => {
       if (!alive || !t || String(t.activityId) !== String(activity.id)) return;
-      if (String(t.key) !== key) {
-        setRemoteStart(new Date(t.startedUtc).getTime());
+      // Show a remote clock for this unit unless WE are timing it locally.
+      if (swRef.current[t.key]?.start == null) {
+        setRemote((r) => ({ ...r, [t.key]: new Date(t.startedUtc).getTime() }));
         ensureTicking();
       }
     };
     const onTimerStopped = (t) => {
       if (!alive || !t || String(t.activityId) !== String(activity.id)) return;
-      if (String(t.key) !== key) setRemoteStart(null);
+      setRemote((r) => { const n = { ...r }; delete n[t.key]; return n; });
     };
 
     getSocket().then((s) => {
@@ -133,70 +170,72 @@ export default function BouleBoard({ activity, participant, canManage = false })
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activity.id, key]);
+  }, [activity.id]);
 
   // ── Ticking: re-render a few times/sec while any clock runs ──────────────────
   function ensureTicking() {
     if (tickRef.current) return;
-    tickRef.current = setInterval(() => {
-      // Stop when nothing is running.
-      setNowTick((n) => n + 1);
-    }, 250);
+    tickRef.current = setInterval(() => setNowTick((n) => n + 1), 250);
   }
-  // Tear the ticker down once no local/remote timer remains.
+  const anyLocalRunning = Object.values(sw).some((v) => v.start != null);
+  const anyRemoteRunning = Object.keys(remote).length > 0;
   useEffect(() => {
-    if (swStart == null && remoteStart == null && tickRef.current) {
+    if (!anyLocalRunning && !anyRemoteRunning && tickRef.current) {
       clearInterval(tickRef.current);
       tickRef.current = null;
-    } else if ((swStart != null || remoteStart != null) && !tickRef.current) {
+    } else if ((anyLocalRunning || anyRemoteRunning) && !tickRef.current) {
       ensureTicking();
     }
-  }, [swStart, remoteStart]);
+  }, [anyLocalRunning, anyRemoteRunning]);
 
-  // ── Stopwatch controls (local) — relays start/stop over the socket ───────────
-  function startStopwatch() {
-    setSwAccum(0);
-    setPending(0);
-    setSwStart(Date.now());
+  // ── Per-unit stopwatch controls (relayed over the socket) ────────────────────
+  const startStopwatch = (key) => {
+    setSw((s) => ({ ...s, [key]: { start: Date.now(), accum: 0 } }));
+    setPending((p) => ({ ...p, [key]: 0 }));
     ensureTicking();
     startTimer(activity.id, key);
-  }
-  function pauseStopwatch() {
-    const seg = Math.max(0, (Date.now() - swStart) / 1000);
-    setSwAccum((a) => a + seg);
-    setSwStart(null);
+  };
+  const pauseStopwatch = (key) => {
+    setSw((s) => {
+      const cur = s[key]; if (!cur || cur.start == null) return s;
+      const seg = Math.max(0, (Date.now() - cur.start) / 1000);
+      return { ...s, [key]: { start: null, accum: (cur.accum || 0) + seg } };
+    });
     stopTimer(activity.id, key);
-  }
-  function resumeStopwatch() {
-    setSwStart(Date.now());
+  };
+  const resumeStopwatch = (key) => {
+    setSw((s) => ({ ...s, [key]: { ...(s[key] || { accum: 0 }), start: Date.now() } }));
     ensureTicking();
     startTimer(activity.id, key);
-  }
-  function stopStopwatch() {
-    const seg = swStart != null ? Math.max(0, (Date.now() - swStart) / 1000) : 0;
-    const total = Math.min(Math.round(swAccum + seg), 100000);
-    setPending(total);
-    setSwStart(null);
-    setSwAccum(0);
+  };
+  const stopStopwatch = (key) => {
+    const cur = swRef.current[key] || { start: null, accum: 0 };
+    const seg = cur.start != null ? Math.max(0, (Date.now() - cur.start) / 1000) : 0;
+    const total = Math.min(Math.round((cur.accum || 0) + seg), 100000);
+    setPending((p) => ({ ...p, [key]: total }));
+    setSw((s) => { const n = { ...s }; delete n[key]; return n; });
     stopTimer(activity.id, key);
-  }
+  };
 
   // ── Record / delete ──────────────────────────────────────────────────────────
-  async function record() {
-    if (!canScore || !participant) return;
-    const value = pending;
-    if (value < 0) return;
+  async function record(unit) {
+    if (!canScore) return;
+    const value = Number(pending[unit.key]) || 0;
+    // A zero reading is never a real result — it would wipe a team's prior reading
+    // (single-reading games deleteMany first) and can prematurely auto-finish a
+    // team game with an all-zero board. Mirrors the .NET guard (points <= 0).
+    if (!(value > 0)) return;
     setBusy(true);
     setError(null);
     try {
       await recordScore(activity.id, {
-        participantId: participant.id,
+        participantId: unit.participantId,
+        userId: perPlayer ? unit.userId : undefined,
         round: perPlayer ? 1 : round,
         points: value,
       });
-      setPending(0);
-      setSwStart(null);
-      setSwAccum(0);
+      setPending((p) => ({ ...p, [unit.key]: 0 }));
+      setSw((s) => { const n = { ...s }; delete n[unit.key]; return n; });
       await loadHistory();
     } catch (e) {
       setError(e?.message || 'Kunde inte registrera poängen.');
@@ -221,13 +260,13 @@ export default function BouleBoard({ activity, participant, canManage = false })
     }
   }
 
-  const adjust = (delta) => setPending((p) => Math.min(Math.max(0, p + delta), 99));
-  const setNumber = (raw) => {
+  const adjust = (key, delta) =>
+    setPending((p) => ({ ...p, [key]: Math.min(Math.max(0, (Number(p[key]) || 0) + delta), 99) }));
+  const setNumber = (key, raw) => {
     const v = Number(String(raw).replace(',', '.'));
-    setPending(Number.isFinite(v) ? Math.min(Math.max(0, v), 100000) : 0);
+    setPending((p) => ({ ...p, [key]: Number.isFinite(v) ? Math.min(Math.max(0, v), 100000) : 0 }));
   };
 
-  // Format a recorded value for display.
   const fmtValue = (v) => {
     if (measuresTime) return `${num(v)} s`;
     if (measuresLength) return `${num(v)} mm`;
@@ -239,8 +278,27 @@ export default function BouleBoard({ activity, participant, canManage = false })
       : activity.scoringMode === ScoringMode.ClosestToTarget ? 'Närmast målvärdet vinner.'
         : 'Högst vinner.';
 
-  const localElapsed = swAccum + (swStart != null ? (Date.now() - swStart) / 1000 : 0);
-  const remoteElapsed = remoteStart != null ? (Date.now() - remoteStart) / 1000 : 0;
+  // Progress (host view): how many of the expected slots are recorded. Only
+  // meaningful for an event with generated teams — a standalone game has no
+  // well-defined expected count (mirrors the .NET Progress()/StructureNote gate).
+  const expectedSlots = teams.length === 0 ? 0 : (perPlayer ? units.length : units.length * maxRound);
+  const recordedSlots = useMemo(() => {
+    const seen = new Set();
+    for (const s of history) {
+      if (perPlayer) { if (s.userId) seen.add(`${s.participantId}:${s.userId}`); }
+      else seen.add(`${s.participantId}:${s.round}`);
+    }
+    return seen.size;
+  }, [history, perPlayer]);
+
+  const elapsedOf = (key) => {
+    const cur = sw[key];
+    if (cur?.start != null) return (cur.accum || 0) + (Date.now() - cur.start) / 1000;
+    if (cur?.accum > 0) return cur.accum;
+    if (remote[key] != null) return (Date.now() - remote[key]) / 1000;
+    return Number(pending[key]) || 0;
+  };
+
   const courts = activity.courts || [];
 
   return (
@@ -261,14 +319,16 @@ export default function BouleBoard({ activity, participant, canManage = false })
           ) : null}
         </div>
 
-        <div className="muted small">{perPlayer ? 'Ett resultat per spelare.' : `${maxRound} runda${maxRound === 1 ? '' : 'r'}.`} {scoringHint}</div>
+        <div className="muted small">
+          {perPlayer ? 'Ett resultat per spelare.' : `${maxRound} runda${maxRound === 1 ? '' : 'r'}.`}
+          {activity.playersPerRound ? ` ${activity.playersPerRound} spelare per runda.` : ''} {scoringHint}
+          {canManage && expectedSlots > 0 ? ` · ${recordedSlots}/${expectedSlots} registrerade.` : ''}
+        </div>
 
         {courts.length > 0 ? (
           <div className="row wrap" style={{ gap: 6 }}>
             <span className="muted small">{activity.courtLabel || 'Banor'}:</span>
-            {courts.map((c) => (
-              <span key={c.id} className="pill">{c.name}</span>
-            ))}
+            {courts.map((c) => (<span key={c.id} className="pill">{c.name}</span>))}
           </div>
         ) : null}
 
@@ -276,65 +336,64 @@ export default function BouleBoard({ activity, participant, canManage = false })
 
         {!canScore ? (
           <p className="muted" style={{ margin: 0 }}>Gå med i aktiviteten för att registrera ditt resultat.</p>
-        ) : !participant ? (
+        ) : visibleUnits.length === 0 ? (
           <p className="muted" style={{ margin: 0 }}>Ingen spelare på den här enheten ännu.</p>
         ) : (
-          <div className="row" style={{ borderTop: '1px solid var(--border)', paddingTop: '.6rem' }}>
-            <span className="grow"><b>{participant.displayName}</b></span>
+          <div className="stack" style={{ gap: 0 }}>
+            {visibleUnits.map((u) => {
+              const running = sw[u.key]?.start != null;
+              const paused = sw[u.key]?.start == null && (sw[u.key]?.accum || 0) > 0;
+              const remoteRunning = remote[u.key] != null;
+              const val = Number(pending[u.key]) || 0;
+              return (
+                <div key={u.key} className="row" style={{ borderTop: '1px solid var(--border)', paddingTop: '.6rem', marginTop: '.6rem' }}>
+                  <span className="grow"><b>{u.name}</b></span>
 
-            {isPoints ? (
-              <div style={stepperWrap}>
-                <button type="button" style={stepBtn} onClick={() => adjust(-1)} disabled={pending <= 0}>−</button>
-                <span style={stepValue}>{num(pending)}</span>
-                <button type="button" style={stepBtn} onClick={() => adjust(1)}>+</button>
-              </div>
-            ) : measuresTime ? (
-              <>
-                {swStart != null ? (
-                  <>
-                    <button className="btn ghost sm" onClick={pauseStopwatch}>Pausa</button>
-                    <button className="btn ghost sm" onClick={stopStopwatch}>Stoppa</button>
-                  </>
-                ) : swAccum > 0 ? (
-                  <>
-                    <button className="btn ghost sm" onClick={resumeStopwatch}>Fortsätt</button>
-                    <button className="btn ghost sm" onClick={stopStopwatch}>Stoppa</button>
-                  </>
-                ) : (
-                  <button className="btn ghost sm" onClick={startStopwatch} disabled={remoteStart != null}>Starta</button>
-                )}
-                {swStart != null ? (
-                  <span style={clockText}>{clock(localElapsed)}</span>
-                ) : swAccum > 0 ? (
-                  <span style={{ ...clockText, color: '#f59e0b' }} title="Pausad">{clock(swAccum)}</span>
-                ) : remoteStart != null ? (
-                  <span style={{ ...clockText, color: '#16a34a' }} title="Någon tar tid just nu">⏱ {clock(remoteElapsed)}</span>
-                ) : (
-                  <span style={{ ...clockText, color: 'var(--text-muted)' }}>{clock(pending)}</span>
-                )}
-              </>
-            ) : (
-              <>
-                <input
-                  type="number"
-                  min="0"
-                  max="100000"
-                  step="any"
-                  value={pending}
-                  onChange={(e) => setNumber(e.target.value)}
-                  style={{ width: 90 }}
-                />
-                <span className="muted">{unitSuffix}</span>
-              </>
-            )}
+                  {isPoints ? (
+                    <div style={stepperWrap}>
+                      <button type="button" style={stepBtn} onClick={() => adjust(u.key, -1)} disabled={val <= 0}>−</button>
+                      <span style={stepValue}>{num(val)}</span>
+                      <button type="button" style={stepBtn} onClick={() => adjust(u.key, 1)}>+</button>
+                    </div>
+                  ) : measuresTime ? (
+                    <>
+                      {running ? (
+                        <>
+                          <button className="btn ghost sm" onClick={() => pauseStopwatch(u.key)}>Pausa</button>
+                          <button className="btn ghost sm" onClick={() => stopStopwatch(u.key)}>Stoppa</button>
+                        </>
+                      ) : paused ? (
+                        <>
+                          <button className="btn ghost sm" onClick={() => resumeStopwatch(u.key)}>Fortsätt</button>
+                          <button className="btn ghost sm" onClick={() => stopStopwatch(u.key)}>Stoppa</button>
+                        </>
+                      ) : (
+                        <button className="btn ghost sm" onClick={() => startStopwatch(u.key)} disabled={remoteRunning}>Starta</button>
+                      )}
+                      <span style={{
+                        ...clockText,
+                        color: running ? undefined : paused ? '#f59e0b' : remoteRunning ? '#16a34a' : 'var(--text-muted)',
+                      }} title={remoteRunning ? 'Någon tar tid just nu' : paused ? 'Pausad' : undefined}>
+                        {remoteRunning && !running && !paused ? '⏱ ' : ''}{clock(elapsedOf(u.key))}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <input type="number" min="0" max="100000" step="any" value={val} onChange={(e) => setNumber(u.key, e.target.value)} style={{ width: 90 }} />
+                      <span className="muted">{unitSuffix}</span>
+                    </>
+                  )}
 
-            <button
-              className="btn sm success"
-              onClick={record}
-              disabled={busy || pending < 0 || (measuresTime && (swStart != null || swAccum > 0 || remoteStart != null))}
-            >
-              {isPoints ? 'Lägg till' : 'Spara'}
-            </button>
+                  <button
+                    className="btn sm success"
+                    onClick={() => record(u)}
+                    disabled={busy || val <= 0 || (measuresTime && (running || paused || remoteRunning))}
+                  >
+                    {isPoints ? 'Lägg till' : 'Spara'}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -346,20 +405,18 @@ export default function BouleBoard({ activity, participant, canManage = false })
           <p className="muted" style={{ margin: 0 }}>Inga poäng registrerade än.</p>
         ) : (() => {
           // Group scores by participant, then by round.
-          const participants = [];
-          const participantMap = new Map();
+          const rows = [];
+          const byName = new Map();
           for (const s of history) {
-            const key = s.participantName || s.userName || '—';
-            if (!participantMap.has(key)) {
-              const entry = { name: key, rounds: {}, total: 0, entries: [] };
-              participantMap.set(key, entry);
-              participants.push(entry);
+            const name = s.userName || s.participantName || '—';
+            if (!byName.has(name)) {
+              const entry = { name, rounds: {}, total: 0 };
+              byName.set(name, entry);
+              rows.push(entry);
             }
-            const p = participantMap.get(key);
-            // Sum multiple entries per round (points-style games add per round).
+            const p = byName.get(name);
             p.rounds[s.round] = (p.rounds[s.round] || 0) + s.points;
             p.total += s.points;
-            p.entries.push(s);
           }
           const roundNums = [...new Set(history.map((s) => s.round))].sort((a, b) => a - b);
           const multiRound = roundNums.length > 1 || maxRound > 1;
@@ -375,7 +432,7 @@ export default function BouleBoard({ activity, participant, canManage = false })
                   </tr>
                 </thead>
                 <tbody>
-                  {participants.map((p) => (
+                  {rows.map((p) => (
                     <tr key={p.name}>
                       <td><b>{p.name}</b></td>
                       {roundNums.map((r) => (
@@ -400,15 +457,7 @@ export default function BouleBoard({ activity, participant, canManage = false })
                     {isPoints ? `${s.points >= 0 ? '+' : ''}${num(s.points)}` : fmtValue(s.points)}
                   </b>
                   {canManage ? (
-                    <button
-                      type="button"
-                      onClick={() => setPendingDelete(s.id)}
-                      disabled={busy}
-                      title="Ta bort"
-                      style={deleteBtn}
-                    >
-                      ✕
-                    </button>
+                    <button type="button" onClick={() => setPendingDelete(s.id)} disabled={busy} title="Ta bort" style={deleteBtn}>✕</button>
                   ) : null}
                 </li>
               ))}

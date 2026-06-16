@@ -317,7 +317,9 @@ async function computePendingSlap(event) {
  * @param {string|ObjectId} input.slappedUserId
  * @param {string|ObjectId} [input.recipientUserId]
  */
-async function performSlap(event, { activityId, slappedUserId, recipientUserId } = {}) {
+async function performSlap(event, {
+  activityId, slappedUserId, recipientUserId, actorUserId,
+} = {}) {
   if (!event) throw new RuleViolation('Event not found.', 404);
   if (event.slapMode === SlapMode.Off) throw new RuleViolation('Slaps are off for this event.');
 
@@ -335,10 +337,18 @@ async function performSlap(event, { activityId, slappedUserId, recipientUserId }
   const winner = await winnerOf(eventId, activityId);
   if (!winner) throw new RuleViolation('This activity has no winner to slap with.');
 
-  // NOTE: the route is responsible for authenticating WHICH user is acting and
-  // passing it; the .NET service verifies the caller is the designated slapper.
-  // Here the slapper is the designated one (winner.slapperUserId).
   const slapperUserId = winner.slapperUserId;
+
+  // Only the DESIGNATED slapper (the lowest-scoring player on the winning team)
+  // may take the slap — the route authenticates the caller and passes actorUserId.
+  // A plain host who isn't that player can only SKIP, not take it (port of
+  // SlapService.PerformAsync's caller-identity check).
+  if (actorUserId == null || idStr(actorUserId) !== idStr(slapperUserId)) {
+    throw new RuleViolation(
+      "It's not your slap to take — the lowest-scoring player on the winning team does it.",
+      403,
+    );
+  }
 
   const memberIds = await memberIdSet(eventId);
   const slapped = idStr(slappedUserId);
