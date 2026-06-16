@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 
 // EventEndpoints (/api/events) — the MERN port of rundan's EventEndpoints.cs
 // (the core subset: create/list/get/update/delete, by-code lookup, members,
@@ -22,7 +23,8 @@ const { canManageEvent, canManageEventAsAccount, eventManager } = require('../mi
 const { eventChanged } = require('../socket/emit');
 const env = require('../config/env');
 const emailService = require('../services/email');
-const { uniqueJoinCode } = require('../utils/joinCode');
+const { uniqueJoinCode, randomCode } = require('../utils/joinCode');
+const { timingSafeEqualStr } = require('../utils/security');
 const { buildStandings } = require('../services/standings');
 const teams = require('../services/teams');
 const { computePendingSlap } = require('../services/slap');
@@ -111,7 +113,14 @@ async function loadEventDto(event) {
   const sortedMembers = memberRows
     .filter((m) => m.userId)
     .sort((a, b) => (a.userId.name || '').localeCompare(b.userId.name || ''));
-  const members = sortedMembers.map((m) => userDto(m.userId));
+  const members = sortedMembers.map((m) => ({
+    ...userDto(m.userId),
+    // needsPin tells the claim UI to prompt for a PIN; an admin is always protected
+    // even if a pin hasn't been backfilled yet (claim lazily generates one). The pin
+    // VALUE is management-only — redactManagement strips it for non-managers.
+    needsPin: m.isAdmin || !!m.claimPin,
+    pin: m.claimPin || null,
+  }));
   const adminUserIds = sortedMembers.filter((m) => m.isAdmin).map((m) => idStr(m.userId));
 
   return {
@@ -153,6 +162,9 @@ function redactManagement(dto) {
   if (!dto.canManage) {
     dto.owner = null;
     dto.coAdmins = [];
+    // Claim PINs are a host secret (and feed the per-member QR) — keep needsPin so
+    // the claim UI can prompt, but never expose the PIN value to non-managers.
+    dto.members = (dto.members || []).map((m) => ({ ...m, pin: null }));
   }
   return dto;
 }
@@ -527,22 +539,26 @@ router.put(
         await EventMember.deleteOne({ _id: m._id });
       }
     }
-    // Update the admin flag on kept members.
+    // Update the admin flag on kept members. An admin is always PIN-protected, so
+    // backfill a PIN when promoting (or for any admin still missing one).
     for (const m of current) {
       if (wanted.has(idStr(m.userId))) {
         m.isAdmin = admins.has(idStr(m.userId));
+        if (m.isAdmin && !m.claimPin) m.claimPin = randomCode(6);
         // eslint-disable-next-line no-await-in-loop
         await m.save();
       }
     }
-    // Add new members with a fresh token.
+    // Add new members with a fresh token; new admins get a claim PIN.
     for (const uid of wanted) {
       if (!currentIds.has(uid)) {
+        const isAdmin = admins.has(uid);
         // eslint-disable-next-line no-await-in-loop
         await EventMember.create({
           eventId: event._id,
           userId: uid,
-          isAdmin: admins.has(uid),
+          isAdmin,
+          claimPin: isAdmin ? randomCode(6) : null,
           addedUtc: new Date(),
         });
       }
@@ -553,6 +569,56 @@ router.put(
     const dto = await loadEventDto(event);
     dto.canManage = true;
     res.json(dto);
+  })
+);
+
+// PUT /api/events/:id/members/:userId/pin — set / clear / generate a roster member's
+// claim PIN (manager only). Body { pin? (set explicit), generate? (random) };
+// neither clears it — except an admin can never be left unprotected (clearing it
+// regenerates). Returns { userId, needsPin, pin }.
+router.put(
+  '/:id/members/:userId/pin',
+  requireAuth,
+  eventManager,
+  asyncHandler(async (req, res) => {
+    const event = req.targetEvent;
+    const member = await EventMember.findOne({ eventId: event._id, userId: req.params.userId });
+    if (!member) throw new RuleViolation("That player isn't on this event's roster.", 404);
+
+    const body = req.body || {};
+    if (body.generate) {
+      member.claimPin = randomCode(6);
+    } else if (typeof body.pin === 'string' && body.pin.trim()) {
+      member.claimPin = body.pin.trim().slice(0, 16);
+    } else {
+      member.claimPin = member.isAdmin ? randomCode(6) : null; // admins stay protected
+    }
+    await member.save();
+    eventChanged(idStr(event));
+    res.json({ userId: idStr(member.userId), needsPin: !!member.claimPin, pin: member.claimPin });
+  })
+);
+
+// POST /api/events/:id/members/:userId/revoke — regenerate a member's device token
+// (x-rundan-member), signing out their current device (they must re-claim/re-scan).
+// Lets a host evict a lost/shared/leaked device without removing the roster entry.
+// Manager-gated. 204.
+router.post(
+  '/:id/members/:userId/revoke',
+  requireAuth,
+  eventManager,
+  asyncHandler(async (req, res) => {
+    const event = req.targetEvent;
+    const member = await EventMember.findOne({ eventId: event._id, userId: req.params.userId });
+    if (!member) throw new RuleViolation("That player isn't on this event's roster.", 404);
+    member.token = crypto.randomUUID();
+    // Also ensure a claim PIN — otherwise the rotated-out device would just
+    // silently re-claim (PIN-less) on its next load and re-authenticate itself,
+    // defeating the revoke. With a PIN, re-entry requires the host's PIN/QR.
+    if (!member.claimPin) member.claimPin = randomCode(6);
+    await member.save();
+    eventChanged(idStr(event));
+    res.json({ ok: true, pin: member.claimPin });
   })
 );
 
@@ -1042,16 +1108,49 @@ router.post(
     // Coerce to a string so a crafted {userId:{$ne:null}} can't match an arbitrary
     // member and leak its (possibly admin) member token (NoSQL operator injection).
     let userId = typeof req.body?.userId === 'string' ? req.body.userId : '';
+    // The caller's OWN linked roster identity (if logged in) — proven, so PIN-free.
+    const ownUserId = req.user
+      ? String((await Account.findById(req.user.id).select('userId').lean())?.userId || '')
+      : '';
     // "Play as me": a logged-in account claims its own linked roster identity.
-    if (!userId && req.user) {
-      const acct = await Account.findById(req.user.id).select('userId').lean();
-      if (acct && acct.userId) userId = String(acct.userId);
-    }
+    if (!userId && ownUserId) userId = ownUserId;
     if (!userId) throw new RuleViolation('Pick a player to claim.');
 
     const member = await EventMember.findOne({ eventId: event._id, userId })
       .populate('userId', 'name');
     if (!member) throw new RuleViolation("That player isn't on this event's roster.", 404);
+
+    // Admins are ALWAYS PIN-protected — lazily backfill a PIN for any admin missing
+    // one (covers admins created before this feature on the live app) so an admin
+    // identity (and its co-host token) can never be claimed PIN-free.
+    if (member.isAdmin && !member.claimPin) {
+      member.claimPin = randomCode(6);
+      await member.save();
+    }
+    // Claiming your OWN logged-in identity needs no PIN; anyone else claiming a
+    // protected member (admin, or a host-set PIN) must present the correct PIN.
+    const isOwn = !!ownUserId && ownUserId === String(userId);
+    if (member.claimPin && !isOwn) {
+      const pin = typeof req.body?.pin === 'string' ? req.body.pin.trim() : '';
+      if (!timingSafeEqualStr(pin, member.claimPin)) {
+        throw new RuleViolation(
+          'Wrong or missing PIN for this player. Ask the host for the PIN, or scan their QR code.',
+          403,
+        );
+      }
+    }
+
+    // Optional explicit "this is me" link: a logged-in account with no roster
+    // identity yet may adopt the claimed roster person (only if no other account
+    // owns it). NEVER for an admin or PIN-protected member — otherwise a one-time
+    // PIN would become a permanent PIN-free admin claim ("play as me" skips the PIN
+    // for your own linked identity), defeating the P0 takeover protection. Those
+    // identities are linked only via an explicit, host-mediated invite designation.
+    if (req.body?.link === true && req.user && !ownUserId
+        && !member.isAdmin && !member.claimPin) {
+      const taken = await Account.exists({ userId, _id: { $ne: req.user.id } });
+      if (!taken) await Account.updateOne({ _id: req.user.id }, { $set: { userId } });
+    }
 
     const joinable = (
       await Activity.find({

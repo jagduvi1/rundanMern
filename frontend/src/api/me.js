@@ -8,5 +8,6 @@ export const updateDisplayName = (displayName) => apiPut('/me/display-name', { d
 
 export const getFriends = () => apiGet('/me/friends');
 export const getFriendCode = () => apiGet('/me/friend-code');
+export const rotateFriendCode = () => apiPost('/me/friend-code/rotate', {});
 export const addFriendByCode = (code) => apiPost('/me/friends/by-code', { code });
 export const removeFriend = (id) => apiDelete(`/me/friends/${id}`);

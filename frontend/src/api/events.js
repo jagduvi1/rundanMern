@@ -30,11 +30,24 @@ export const getTeams = (id) => apiGet(`/events/${id}/teams`, { eventId: id });
 export const reshuffleTeams = (id) => apiPost(`/events/${id}/teams/reshuffle`, {}, { eventId: id });
 export const arrive = (id, lat, lng) => apiPost(`/events/${id}/arrive`, { lat, lng }, { eventId: id });
 
+// Set / clear / generate a roster member's claim PIN (manager only).
+export const setMemberPin = (id, userId, body) =>
+  apiPut(`/events/${id}/members/${userId}/pin`, body, { eventId: id });
+// Revoke a member's device token (sign them out; they must re-claim). Manager only.
+export const revokeMember = (id, userId) =>
+  apiPost(`/events/${id}/members/${userId}/revoke`, {}, { eventId: id });
+
 // Joining an event (by code). join = free-name; claim = pick a roster identity.
 export const joinEvent = (code, displayName) =>
   apiPost(`/events/by-code/${code}/join`, { displayName });
-export const claimEvent = (code, userId) =>
-  apiPost(`/events/by-code/${code}/claim`, { userId });
+// claim a roster identity; `pin` is required for PIN-protected members (admins +
+// any the host protected) unless you're claiming your OWN logged-in identity.
+// `link:true` (a logged-in account with no roster identity yet) adopts the claimed
+// roster person as its own — an explicit, confirmed account↔roster link.
+export const claimEvent = (code, userId, pin, link) =>
+  apiPost(`/events/by-code/${code}/claim`, {
+    userId, ...(pin ? { pin } : {}), ...(link ? { link: true } : {}),
+  });
 // "Spela som mig": a logged-in account claims its OWN linked roster identity —
 // userId is omitted so the backend resolves it from the account.
 export const claimEventAsMe = (code) =>

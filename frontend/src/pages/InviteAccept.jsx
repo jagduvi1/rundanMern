@@ -122,7 +122,8 @@ export default function InviteAccept() {
       <h1>Du är inbjuden!</h1>
       <p className="muted">
         {ctx.invitedByName ? `${ctx.invitedByName} har bjudit in dig` : 'Du har blivit inbjuden'} till{' '}
-        <b>{ctx.eventName}</b>.
+        <b>{ctx.eventName}</b>
+        {ctx.designatedName ? <> som <b>{ctx.designatedName}</b></> : null}.
       </p>
       {ctx.hasAccount ? (
         <form className="stack" onSubmit={doLogin}>

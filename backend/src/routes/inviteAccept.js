@@ -1,6 +1,6 @@
 const express = require('express');
 
-const { Account, Event } = require('../models');
+const { Account, Event, User } = require('../models');
 const { asyncHandler } = require('../middleware/error');
 const { requireAuth } = require('../middleware/auth');
 const { idStr } = require('../services/serializers');
@@ -21,12 +21,22 @@ router.get('/:token', asyncHandler(async (req, res) => {
   const inviter = invite.invitedBy
     ? await Account.findById(invite.invitedBy).select('displayName username').lean()
     : null;
+  const designated = invite.userId
+    ? await User.findById(invite.userId).select('name').lean()
+    : null;
   const hasAccount = !!(await Account.exists({ email: invite.email }));
+  // Don't echo the address back to the INVITER (who may have invited a friend by
+  // account id and shouldn't harvest their email via this public context route);
+  // the actual invitee (a different session) still gets it to drive the accept UI.
+  const isInviter = req.user && invite.invitedBy
+    && String(req.user.id) === String(invite.invitedBy);
   return res.json({
-    email: invite.email,
+    email: isInviter ? null : invite.email,
     eventId: idStr(invite.eventId),
     eventName: event.name,
     invitedByName: inviter ? (inviter.displayName || inviter.username) : null,
+    // The roster person this invite is for (so the accept page can say "as Johan").
+    designatedName: designated ? designated.name : null,
     hasAccount,
   });
 }));

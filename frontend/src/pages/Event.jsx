@@ -17,7 +17,7 @@ import {
   getEvent, getStandings, getTeams, reshuffleTeams, setMembers, updateEvent,
   setEventCode, reorderActivities, setActivitiesStatus, arrive, joinEvent, claimEvent,
   claimEventAsMe, addEventAdmin, removeEventAdmin, deleteEvent,
-  addActivityFromLibrary, restartEvent,
+  addActivityFromLibrary, restartEvent, setMemberPin, revokeMember,
 } from '../api/events';
 import { inviteToEvent } from '../api/invites';
 import { getFriends } from '../api/me';
@@ -84,7 +84,7 @@ export default function Event() {
   const navigate = useNavigate();
   const { toast, show } = useToast();
   const { hasWebPush } = useBootstrap();
-  const { user } = useAuth();
+  const { user, patchUser } = useAuth();
 
   const [event, setEvent] = useState(null);
   const [standings, setStandings] = useState(null);
@@ -107,11 +107,15 @@ export default function Event() {
   const [infoOpen, setInfoOpen] = useState(true);
   const [arrivedId, setArrivedId] = useState(null);
   const [shareOpen, setShareOpen] = useState(false); // QR/share modal (render-only)
+  const [pinFor, setPinFor] = useState(null); // roster member awaiting a claim PIN
+  const [pinInput, setPinInput] = useState('');
+  const [linkMe, setLinkMe] = useState(false); // opt-in: link account to the picked roster person
 
   const eventRef = useRef(null);
   eventRef.current = event;
   const seenInsideRef = useRef(new Set());
   const lastArrivalPostRef = useRef(0);
+  const autoClaimedRef = useRef(false); // QR deep-link claim runs once
 
   useDocumentTitle(`${event?.name || 'Evenemang'} · Rundan`);
 
@@ -342,12 +346,18 @@ export default function Event() {
   }, [coords, event]);
 
   // ── Player actions ──────────────────────────────────────────────────────────
-  const claim = async (userId) => {
+  // `pin` is required for PIN-protected roster members (admins + any the host
+  // protected) unless this is the caller's own logged-in identity.
+  const claim = async (userId, pin, link) => {
     setBusy(true);
     try {
-      const res = await claimEvent(event.joinCode, userId);
+      const res = await claimEvent(event.joinCode, userId, pin, link);
       persistClaim(id, res);
       setEventName(res.displayName);
+      setPinFor(null);
+      // If we asked to link and it bound, reflect it so the "is this me" prompt
+      // stops showing and link stops being offered.
+      if (link && res.userId && user && !user.userId) patchUser({ userId: res.userId });
       await refreshStandings();
       await reload();
     } catch (err) {
@@ -357,6 +367,20 @@ export default function Event() {
     }
   };
 
+  // QR deep-link: /e/:id?claimUser=<userId>&pin=<pin> — the host hands a member a QR
+  // that, scanned, claims THAT roster identity automatically; then strip the secret
+  // params from the URL. Runs once after the event has loaded.
+  useEffect(() => {
+    if (!event || autoClaimedRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const claimUser = params.get('claimUser');
+    if (!claimUser) return;
+    autoClaimedRef.current = true;
+    const pin = params.get('pin') || undefined;
+    claim(claimUser, pin).finally(() => navigate(`/e/${id}`, { replace: true }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event]);
+
   // "Spela för en spelare" (host proxy) — take over a roster player whose phone
   // died: claim THEM (their per-activity tokens + member token persist to this
   // device), remember it as the active proxy, then hard-reload so every page
@@ -364,7 +388,8 @@ export default function Event() {
   const playAs = async (m) => {
     setBusy(true);
     try {
-      const res = await claimEvent(event.joinCode, m.id);
+      // The host holds the PINs (manager), so a protected member can be proxied.
+      const res = await claimEvent(event.joinCode, m.id, m.pin);
       // OVERLAY ONLY — store the proxied identity + per-activity tokens in the proxy
       // object; do NOT persistClaim (that would overwrite the host's own device
       // session/member keys and leak after Stop). The client token getters read
@@ -779,9 +804,37 @@ export default function Event() {
           {user ? (
             <button type="button" className="btn block" onClick={claimAsMe} disabled={busy}>Spela som mig ({user.displayName || user.username})</button>
           ) : null}
-          {(event.members || []).map((m) => (
-            <button key={m.id} type="button" className="btn block ghost" onClick={() => claim(m.id)} disabled={busy}>{m.name}</button>
-          ))}
+          {user && !user.userId ? (
+            <label className="row small" style={{ gap: 6, alignItems: 'center' }}>
+              <input type="checkbox" style={{ width: 'auto', minHeight: 'auto' }} checked={linkMe} onChange={(e) => setLinkMe(e.target.checked)} />
+              Det här är jag — koppla mitt konto till spelaren jag väljer
+            </label>
+          ) : null}
+          {(event.members || []).map((m) => {
+            const link = user && !user.userId ? linkMe : undefined;
+            if (m.needsPin && pinFor?.id === m.id) {
+              return (
+                <div key={m.id} className="row" style={{ gap: 6 }}>
+                  <input
+                    type="text" className="grow" autoFocus
+                    placeholder={`PIN för ${m.name}`}
+                    value={pinInput}
+                    onChange={(e) => setPinInput(e.target.value)}
+                  />
+                  <button type="button" className="btn sm success" onClick={() => claim(m.id, pinInput.trim())} disabled={busy || !pinInput.trim()}>Gå med</button>
+                  <button type="button" className="btn sm ghost" onClick={() => { setPinFor(null); setPinInput(''); }}>Avbryt</button>
+                </div>
+              );
+            }
+            return (
+              <button
+                key={m.id} type="button" className="btn block ghost" disabled={busy}
+                onClick={() => (m.needsPin ? (setPinFor(m), setPinInput('')) : claim(m.id, undefined, link))}
+              >
+                {m.needsPin ? '🔒 ' : ''}{m.name}
+              </button>
+            );
+          })}
         </div>
       ) : (
         <div className="card stack">
@@ -843,6 +896,7 @@ export default function Event() {
           eventId={id}
           shareUrl={shareUrl}
           joinCode={event.joinCode}
+          members={(event.members || []).filter((m) => !(event.adminUserIds || []).includes(m.id))}
           onToast={show}
           onReload={reload}
           onShare={() => setShareOpen(true)}
@@ -953,11 +1007,28 @@ function HostControls({
   const [libSourceId, setLibSourceId] = useState('');
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [restartClearChat, setRestartClearChat] = useState(false);
+  const [memberQr, setMemberQr] = useState(null); // { url, name } for a member's claim QR
 
   // Players & admins
   const [allUsers, setAllUsers] = useState([]);
   const [memberIds, setMemberIds] = useState(new Set((event.members || []).map((m) => m.id)));
   const [adminIds, setAdminIds] = useState(new Set(event.adminUserIds || []));
+  // Re-derive the selection from the server whenever the actual member/admin set
+  // changes (e.g. a co-host saved, or our own save landed) — but NOT on every
+  // reload, so unsaved local toggles survive a same-set refresh. Avoids the
+  // last-writer-wins stale overwrite.
+  // Separate effects per field so a concurrent change to one (e.g. a co-host
+  // toggles an admin) doesn't discard the host's unsaved toggles in the other.
+  const memberSig = (event.members || []).map((m) => m.id).slice().sort().join(',');
+  const adminSig = (event.adminUserIds || []).slice().sort().join(',');
+  useEffect(() => {
+    setMemberIds(new Set((event.members || []).map((m) => m.id)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memberSig]);
+  useEffect(() => {
+    setAdminIds(new Set(event.adminUserIds || []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminSig]);
 
   // Account co-admins (shared event ownership).
   const { user } = useAuth();
@@ -1046,6 +1117,37 @@ function HostControls({
       onToast('Spelare sparade.');
     } catch (err) {
       onToast(err?.message || 'Kunde inte spara spelare.');
+    } finally {
+      setLocalBusy(false);
+    }
+  };
+
+  // Per-member claim PIN + QR. setMemberPin(generate) protects (or re-rolls) a
+  // member; {pin:''} clears it (admins stay protected server-side). The QR encodes
+  // a deep link that auto-claims that identity when the right person scans it.
+  const setPin = async (memberUserId, body) => {
+    setLocalBusy(true);
+    try {
+      await setMemberPin(id, memberUserId, body);
+      await onReload();
+    } catch (err) {
+      onToast(err?.message || 'Kunde inte uppdatera PIN.');
+    } finally {
+      setLocalBusy(false);
+    }
+  };
+  const showMemberQr = (m) => {
+    const url = `${window.location.origin}/e/${id}?claimUser=${m.id}&pin=${encodeURIComponent(m.pin || '')}`;
+    setMemberQr({ url, name: m.name });
+  };
+  const revoke = async (m) => {
+    setLocalBusy(true);
+    try {
+      const res = await revokeMember(id, m.id);
+      await onReload();
+      onToast(`${m.name}: enheten utloggad. Ny PIN ${res?.pin || ''} — dela den (eller QR) med rätt person för att gå med igen.`);
+    } catch (err) {
+      onToast(err?.message || 'Kunde inte logga ut enheten.');
     } finally {
       setLocalBusy(false);
     }
@@ -1274,6 +1376,47 @@ function HostControls({
         </div>
       </details>
 
+      {/* Per-member claim PIN + QR — protect admins (always) + chosen players */}
+      {(event.members || []).length > 0 ? (
+        <details>
+          <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Spelar-PIN &amp; QR-koder</summary>
+          <div className="stack" style={{ marginTop: '.6rem' }}>
+            <p className="muted small">
+              Admins är alltid skyddade med en PIN. Sätt en PIN på fler spelare om du vill — då måste man ange
+              PIN:en (eller skanna QR-koden) för att gå med som dem. Visa QR-koden för rätt person så går de med automatiskt.
+            </p>
+            {(event.members || []).map((m) => {
+              const isAdmin = (event.adminUserIds || []).includes(m.id);
+              return (
+                <div key={m.id} className="row wrap" style={{ borderTop: '1px solid var(--border)', paddingTop: 8, gap: 8, alignItems: 'center' }}>
+                  <span className="grow"><b>{m.name}</b>{isAdmin ? <span className="pill accent" style={{ marginLeft: 6 }}>admin</span> : null}</span>
+                  {m.pin ? (
+                    <>
+                      <code style={{ fontSize: '1.05rem' }}>{m.pin}</code>
+                      <button type="button" className="btn ghost sm" onClick={() => showMemberQr(m)}>Visa QR</button>
+                      <button type="button" className="btn ghost sm" onClick={() => setPin(m.id, { generate: true })} disabled={anyBusy}>Ny PIN</button>
+                      {!isAdmin ? <button type="button" className="btn ghost sm danger" onClick={() => setPin(m.id, { pin: '' })} disabled={anyBusy}>Ta bort</button> : null}
+                    </>
+                  ) : (
+                    <button type="button" className="btn ghost sm" onClick={() => setPin(m.id, { generate: true })} disabled={anyBusy}>
+                      {m.needsPin ? 'Generera PIN' : 'Skydda med PIN'}
+                    </button>
+                  )}
+                  <button type="button" className="btn ghost sm danger" onClick={() => revoke(m)} disabled={anyBusy} title="Logga ut spelarens enhet — de måste gå med igen">Logga ut</button>
+                </div>
+              );
+            })}
+          </div>
+        </details>
+      ) : null}
+
+      <QrShareModal
+        open={!!memberQr}
+        url={memberQr?.url || ''}
+        title={memberQr ? `${memberQr.name} — skanna för att gå med` : ''}
+        onClose={() => setMemberQr(null)}
+      />
+
       {/* Co-admins (shared event ownership by account) */}
       <details>
         <summary style={{ cursor: 'pointer', fontWeight: 700 }}>
@@ -1431,7 +1574,7 @@ function HostControls({
 // always returned (copyable) so the host can share them when email is off.
 // Surfaces emailEnabled + a per-link QR, plus a "share the code" affordance for
 // anonymous joiners. Logic (ensureFriends/send/parseEmails) is unchanged.
-function InviteFriends({ eventId, shareUrl, joinCode, onToast, onReload, onShare, onCopy, anyBusy }) {
+function InviteFriends({ eventId, shareUrl, joinCode, members = [], onToast, onReload, onShare, onCopy, anyBusy }) {
   const [emails, setEmails] = useState('');
   const [friends, setFriends] = useState(null);
   const [friendsError, setFriendsError] = useState(null);
@@ -1440,6 +1583,8 @@ function InviteFriends({ eventId, shareUrl, joinCode, onToast, onReload, onShare
   const [results, setResults] = useState(null);
   const [emailEnabled, setEmailEnabled] = useState(true);
   const [qrUrl, setQrUrl] = useState(null);
+  const [linkUserId, setLinkUserId] = useState(''); // designate this invite for a roster person
+  const [linkEmail, setLinkEmail] = useState('');
 
   // Load the host's friends. The section is always open now, so load on mount
   // (the same lazy-once guard as before — calls the unchanged loader).
@@ -1463,7 +1608,21 @@ function InviteFriends({ eventId, shareUrl, joinCode, onToast, onReload, onShare
       .map((email) => ({ email }));
 
   const send = async () => {
-    const invites = parseEmails();
+    // A half-filled designation (one of player/email) is a mistake — don't drop it silently.
+    if ((linkUserId ? 1 : 0) + (linkEmail.trim() ? 1 : 0) === 1) {
+      onToast?.('Välj både rosterspelare och e-post för en kopplad inbjudan.');
+      return;
+    }
+    let invites = parseEmails();
+    // A roster-designated invite: the invitee becomes THIS roster person on accept.
+    if (linkUserId && linkEmail.trim()) {
+      const email = linkEmail.trim().toLowerCase();
+      // Drop any plain textarea entry for the same address so the designation wins
+      // (the backend dedupes by email, keeping the first occurrence).
+      invites = invites.filter((i) => i.email.toLowerCase() !== email);
+      const m = members.find((x) => x.id === linkUserId);
+      invites.unshift({ email: linkEmail.trim(), userId: linkUserId, name: m?.name });
+    }
     const accountIds = [...selected];
     if (invites.length === 0 && accountIds.length === 0) {
       onToast?.('Lägg till minst en e-post eller välj en vän.');
@@ -1476,6 +1635,8 @@ function InviteFriends({ eventId, shareUrl, joinCode, onToast, onReload, onShare
       setEmailEnabled(!!res.emailEnabled);
       setEmails('');
       setSelected(new Set());
+      setLinkUserId('');
+      setLinkEmail('');
       await onReload?.();
     } catch (err) {
       onToast?.(err?.message || 'Kunde inte skicka inbjudningar.');
@@ -1521,6 +1682,28 @@ function InviteFriends({ eventId, shareUrl, joinCode, onToast, onReload, onShare
           <p className="muted small" style={{ margin: '4px 0 0' }}>Separera med komma eller radbrytning.</p>
         </div>
 
+        {/* Designate a roster player (links their login to the right identity) */}
+        {members.length > 0 ? (
+          <div className="stack" style={{ gap: 6 }}>
+            <b>Bjud in en rosterspelare</b>
+            <p className="muted small" style={{ margin: 0 }}>
+              Koppla en inbjudan till en spelare i rostret — när de skapar ett konto blir de
+              <b> den</b> spelaren (samma poäng, inga dubbletter).
+            </p>
+            <div className="row wrap" style={{ gap: 6 }}>
+              <select value={linkUserId} onChange={(e) => setLinkUserId(e.target.value)} className="grow">
+                <option value="">Välj rosterspelare…</option>
+                {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+              <input
+                type="email" placeholder="deras@e-post.se"
+                value={linkEmail} onChange={(e) => setLinkEmail(e.target.value)}
+                style={{ minWidth: 160 }}
+              />
+            </div>
+          </div>
+        ) : null}
+
         {/* From friends */}
         <div className="stack" style={{ gap: 6 }}>
           <b>Dina vänner</b>
@@ -1564,7 +1747,7 @@ function InviteFriends({ eventId, shareUrl, joinCode, onToast, onReload, onShare
               <p className="muted small" style={{ margin: 0 }}>Inga inbjudningar att visa.</p>
             ) : (
               results.map((r, i) => (
-                <InviteResultRow key={r.email || r.accountId || i} result={r} onShowQr={setQrUrl} onToast={onToast} />
+                <InviteResultRow key={r.link || r.email || i} result={r} onShowQr={setQrUrl} onToast={onToast} />
               ))
             )}
           </div>
