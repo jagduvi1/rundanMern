@@ -29,6 +29,22 @@ const memoryCardSchema = new mongoose.Schema({
   text: { type: String, required: true, maxlength: 120 },
 });
 
+// A source Spotify playlist remembered on a MusicQuiz so the host can import more
+// tracks later — round-robin across all saved playlists. Lives on the activity,
+// so it survives a results reset and track deletions (which only touch Questions).
+// The metadata is a best-effort snapshot taken from Spotify when the playlist is
+// added (title/owner/cover/track count), purely for display.
+const musicPlaylistSchema = new mongoose.Schema({
+  playlistId: { type: String, required: true, maxlength: 64 },
+  url: { type: String, maxlength: 500, default: null },
+  title: { type: String, maxlength: 300, default: null },
+  ownerName: { type: String, maxlength: 200, default: null },
+  imageUrl: { type: String, maxlength: 500, default: null },
+  trackCount: { type: Number, default: null },
+  description: { type: String, maxlength: 1000, default: null },
+  addedUtc: { type: Date, default: Date.now },
+});
+
 // ── Activity ────────────────────────────────────────────────────────────────
 // The big polymorphic game instance; many fields are type-specific (quiz,
 // tipspromenad, boule/bracket, score game, word game, map-pin, music, memory).
@@ -108,6 +124,8 @@ const activitySchema = new mongoose.Schema({
   courts: { type: [courtSchema], default: [] },
   mapCities: { type: [mapCitySchema], default: [] },
   memoryCards: { type: [memoryCardSchema], default: [] },
+  // Source playlists for a MusicQuiz (import more later; round-robin across them).
+  musicPlaylists: { type: [musicPlaylistSchema], default: [] },
 });
 
 activitySchema.index({ eventId: 1, order: 1 });

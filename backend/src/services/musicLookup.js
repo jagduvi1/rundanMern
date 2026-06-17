@@ -307,6 +307,53 @@ async function importPlaylist(playlistUrl, count, accessToken) {
   return all.slice(0, max);
 }
 
+/**
+ * Read a playlist's OWN metadata (name/description/owner/cover/total tracks).
+ * Best-effort: needs a valid Spotify access token (the playlist API is auth-only).
+ * Returns null when the URL isn't a playlist, no token is supplied, or the fetch
+ * fails. Used to label the source playlists saved on a music quiz.
+ *
+ * @param {string} playlistUrl
+ * @param {string} accessToken  a fresh Spotify access token
+ * @returns {Promise<{playlistId:string,title:?string,description:?string,ownerName:?string,imageUrl:?string,trackCount:?number}|null>}
+ */
+async function getPlaylistMeta(playlistUrl, accessToken) {
+  const playlistId = tryGetPlaylistId(playlistUrl);
+  if (!playlistId || !accessToken) return null;
+
+  const fields = encodeURIComponent('name,description,owner(display_name),images(url),tracks(total)');
+  const url = `${API_BASE}/playlists/${encodeURIComponent(playlistId)}?fields=${fields}`;
+
+  let resp;
+  try {
+    resp = await httpGet(url, { Authorization: `Bearer ${accessToken}` });
+  } catch {
+    return null; // network/timeout — caller treats it as "couldn't read it"
+  }
+  if (!resp.ok) return null;
+
+  try {
+    const root = JSON.parse(await resp.text());
+    const owner = root.owner && typeof root.owner.display_name === 'string' ? root.owner.display_name : null;
+    const image = Array.isArray(root.images) && root.images[0] && typeof root.images[0].url === 'string'
+      ? root.images[0].url : null;
+    const total = root.tracks && Number.isFinite(root.tracks.total) ? root.tracks.total : null;
+    // Truncate to the Activity subdoc's maxlengths so an over-long value can never
+    // turn a best-effort metadata read into a validation error on save.
+    const cut = (s, n) => (s ? s.slice(0, n) : s);
+    return {
+      playlistId,
+      title: cut(nullIfBlank(typeof root.name === 'string' ? root.name : null), 300),
+      description: cut(nullIfBlank(typeof root.description === 'string' ? root.description : null), 1000),
+      ownerName: cut(nullIfBlank(owner), 200),
+      imageUrl: cut(image, 500),
+      trackCount: total,
+    };
+  } catch {
+    return null; // malformed JSON — best-effort, no metadata
+  }
+}
+
 // ── MusicChoices: deterministic multiple-choice artist options ────────────────
 
 // A spread of widely-known artists across eras/genres (exact port of
@@ -454,6 +501,7 @@ function populateChoices(dtos, questions, similar = null) {
 module.exports = {
   lookup,
   importPlaylist,
+  getPlaylistMeta,
   buildChoices,
   populateChoices,
   // Parsers / id helpers exported for reuse + tests.
