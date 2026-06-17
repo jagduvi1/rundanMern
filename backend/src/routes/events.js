@@ -630,6 +630,51 @@ router.post(
   })
 );
 
+// POST /api/events/:id/roster-claim-link — ensure a roster member BY NAME (created
+// in the host's OWN roster if absent, added to this event if not already a member)
+// and return what's needed to build a one-scan claim QR/link
+// (/e/:id?claimUser=<userId>&pin=<pin>). The member is left PIN-free so the QR alone
+// joins the scanning device as that named player. Host-auth.
+router.post(
+  '/:id/roster-claim-link',
+  requireAuth,
+  eventManager,
+  asyncHandler(async (req, res) => {
+    const event = req.targetEvent;
+    const name = (clean(req.body?.name) || '').slice(0, 60);
+    if (!name) throw new RuleViolation('Enter a name for the player.');
+
+    const ownerId = req.user.id;
+    // Find-or-create the roster user in the HOST's own roster (per-account scoping).
+    let user = await User.findOne({ name, owner: ownerId });
+    if (!user) {
+      try {
+        user = await User.create({ name, owner: ownerId, createdUtc: new Date() });
+      } catch (e) {
+        if (e && e.code === 11000) user = await User.findOne({ name, owner: ownerId });
+        else throw e;
+      }
+    }
+    if (!user) throw new RuleViolation('Could not create that player. Try again.', 500);
+
+    // Ensure they're on THIS event's roster (idempotent; PIN-free quick join).
+    let member = await EventMember.findOne({ eventId: event._id, userId: user._id });
+    if (!member) {
+      member = await EventMember.create({
+        eventId: event._id, userId: user._id, isAdmin: false, addedUtc: new Date(),
+      });
+      eventChanged(idStr(event));
+    }
+
+    res.json({
+      id: idStr(user._id),
+      name: user.name,
+      needsPin: !!member.claimPin,
+      pin: member.claimPin || null,
+    });
+  })
+);
+
 // ── Account co-admins (event.admins) ──────────────────────────────────────────
 // Distinct from the roster EventMember admins above: these are full Accounts
 // promoted to co-host an event, so the event is shared and any of them can manage

@@ -17,6 +17,10 @@ export const removeEventAdmin = (id, accountId) =>
 // Leave an event yourself — drops your roster membership and/or co-host grant.
 // The owner can't leave (they delete or hand over the event instead).
 export const leaveEventSelf = (id) => apiPost(`/events/${id}/leave`, {}, { eventId: id });
+// Ensure a roster member by NAME (created in your roster if absent) + added to this
+// event, and get { id, name, needsPin, pin } to build a one-scan claim QR/link.
+export const rosterClaimLink = (id, name) =>
+  apiPost(`/events/${id}/roster-claim-link`, { name }, { eventId: id });
 export const setEventCode = (id, code) => apiPut(`/events/${id}/code`, { code }, { eventId: id });
 export const reorderActivities = (id, activityIds) =>
   apiPut(`/events/${id}/reorder`, { activityIds }, { eventId: id });
