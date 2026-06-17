@@ -84,7 +84,8 @@ button { font-family: inherit; }
 .btn.block { width: 100%; }
 .btn.ghost { background: var(--surface); color: var(--text); border-color: var(--border); }
 .btn.soft { background: var(--accent-soft); color: var(--accent-dark); }
-.btn.danger { background: var(--danger); }
+.btn.danger { background: var(--danger); color: #fff; }
+.btn.ghost.danger { background: var(--surface); color: var(--danger); border-color: var(--danger); }
 .btn.success { background: var(--ok); }
 .btn.sm { padding: 7px 12px; font-size: 0.9rem; min-height: 36px; }
 .btn.lg { padding: 15px 22px; font-size: 1.1rem; min-height: 52px; }
