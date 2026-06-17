@@ -45,7 +45,7 @@ const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 // (members ordered by user name) + adminUserIds; the estimated route metres; and
 // the recently-seen viewer names. `canManage`/`pendingSlap` are layered on by the
 // callers that have the request / slaps.
-async function loadEventDto(event) {
+async function loadEventDto(event, viewerAccountId = null) {
   const teamBased = event.teamSize > 1;
 
   // Wave 1 — independent reads run together: the activity list, the roster (also
@@ -120,6 +120,11 @@ async function loadEventDto(event) {
     // VALUE is management-only — redactManagement strips it for non-managers.
     needsPin: m.isAdmin || !!m.claimPin,
     pin: m.claimPin || null,
+    // Per-event identity: which logged-in account "is" this slot (host-facing, also
+    // redacted for non-managers), and a caller-facing "this is me" flag so the
+    // player UI can badge/preselect their own roster slot.
+    accountId: m.accountId ? idStr(m.accountId) : null,
+    isMe: !!(viewerAccountId && m.accountId && String(m.accountId) === String(viewerAccountId)),
   }));
   const adminUserIds = sortedMembers.filter((m) => m.isAdmin).map((m) => idStr(m.userId));
 
@@ -164,7 +169,9 @@ function redactManagement(dto) {
     dto.coAdmins = [];
     // Claim PINs are a host secret (and feed the per-member QR) — keep needsPin so
     // the claim UI can prompt, but never expose the PIN value to non-managers.
-    dto.members = (dto.members || []).map((m) => ({ ...m, pin: null }));
+    // accountId (which login holds a slot) is host-facing too; keep isMe (the
+    // caller's own truth — no leak).
+    dto.members = (dto.members || []).map((m) => ({ ...m, pin: null, accountId: null }));
   }
   return dto;
 }
@@ -230,7 +237,7 @@ function nextTeamSeed(current) {
 // desc (port of ListAllEventDtos; _id ≈ creation order). Returns { event, dto }
 // pairs so callers can layer canManage from the already-loaded event doc rather
 // than re-fetching it. DTOs are built concurrently.
-async function listEventDtos(filter = {}) {
+async function listEventDtos(filter = {}, viewerAccountId = null) {
   const events = await Event.find(filter).lean();
   events.sort((a, b) => {
     const ak = a.startsAt || (a.createdUtc ? new Date(a.createdUtc).toISOString() : '');
@@ -238,7 +245,7 @@ async function listEventDtos(filter = {}) {
     if (ak !== bk) return ak < bk ? 1 : -1;
     return String(a._id) < String(b._id) ? 1 : -1;
   });
-  const dtos = await Promise.all(events.map((ev) => loadEventDto(ev)));
+  const dtos = await Promise.all(events.map((ev) => loadEventDto(ev, viewerAccountId)));
   return events.map((event, i) => ({ event, dto: dtos[i] }));
 }
 
@@ -254,11 +261,22 @@ async function connectedEventFilter(req) {
   const uid = req.user?.id;
   if (!uid) return null; // anonymous → no events (reach one via its code/link)
   const ors = [{ owner: uid }, { admins: uid }];
+  // Per-event identity: events this account is a member of via the new accountId
+  // link. Union with the legacy global Account.userId link so members joined before
+  // the backfill (or via the invite flow) keep showing up during the transition.
+  const byAccount = await EventMember.find({ accountId: uid }).distinct('eventId');
   const acct = await Account.findById(uid).select('userId').lean();
-  if (acct?.userId) {
-    const memberEventIds = await EventMember.find({ userId: acct.userId }).distinct('eventId');
-    if (memberEventIds.length) ors.push({ _id: { $in: memberEventIds } });
-  }
+  const byUser = acct?.userId
+    ? await EventMember.find({ userId: acct.userId }).distinct('eventId')
+    : [];
+  const seen = new Set();
+  const memberEventIds = [...byAccount, ...byUser].filter((id) => {
+    const k = String(id);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  if (memberEventIds.length) ors.push({ _id: { $in: memberEventIds } });
   return { $or: ors };
 }
 
@@ -299,7 +317,7 @@ router.post(
 
     const event = await Event.create(fields);
 
-    const dto = await loadEventDto(event);
+    const dto = await loadEventDto(event, req.user?.id);
     dto.canManage = true; // the creator is the owner
     res.status(201).location(`/api/events/${event._id}`).json(dto);
   })
@@ -311,7 +329,7 @@ router.get(
   '/',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const rows = await listEventDtos(managedEventFilter(req));
+    const rows = await listEventDtos(managedEventFilter(req), req.user?.id);
     await Promise.all(rows.map(async ({ event, dto }) => {
       // Use the already-loaded event doc (no re-fetch); canManageEvent only needs
       // its owner/admins, which the lean doc carries.
@@ -331,7 +349,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const filter = await connectedEventFilter(req);
     if (!filter) return res.json([]); // anonymous → no events
-    const rows = (await listEventDtos(filter)).filter(({ dto }) => !dto.isArchived);
+    const rows = (await listEventDtos(filter, req.user?.id)).filter(({ dto }) => !dto.isArchived);
     await Promise.all(rows.map(async ({ event, dto }) => {
       // Reuse the loaded event doc instead of re-fetching it per row.
       dto.canManage = await canManageEvent(req, event);
@@ -464,7 +482,7 @@ router.put(
 
     if (teamModeChanged) await teams.resetUnplayedTeams(event._id);
 
-    const dto = await loadEventDto(event);
+    const dto = await loadEventDto(event, req.user?.id);
     dto.canManage = true;
     res.json(dto);
   })
@@ -574,7 +592,7 @@ router.put(
 
     eventChanged(idStr(event));
 
-    const dto = await loadEventDto(event);
+    const dto = await loadEventDto(event, req.user?.id);
     dto.canManage = true;
     res.json(dto);
   })
@@ -745,7 +763,7 @@ router.post(
       eventChanged(idStr(event));
     }
 
-    const dto = await loadEventDto(event);
+    const dto = await loadEventDto(event, req.user?.id);
     dto.canManage = true;
     res.json(dto);
   })
@@ -782,7 +800,7 @@ router.delete(
       eventChanged(idStr(event));
     }
 
-    const dto = await loadEventDto(event);
+    const dto = await loadEventDto(event, req.user?.id);
     dto.canManage = await canManageEvent(req, event);
     // A co-host who just removed themselves can no longer manage — strip the
     // host-only fields (owner/co-host emails + claim PINs) on the way out instead
@@ -873,7 +891,7 @@ router.put(
     await event.save();
     eventChanged(idStr(event));
 
-    const dto = await loadEventDto(event);
+    const dto = await loadEventDto(event, req.user?.id);
     dto.canManage = true;
     res.json(dto);
   })
@@ -1091,7 +1109,7 @@ router.get(
     const event = await Event.findById(req.params.id);
     if (!event) return res.status(404).json({ error: 'Event not found.' });
 
-    const dto = await loadEventDto(event);
+    const dto = await loadEventDto(event, req.user?.id);
     dto.pendingSlap = await computePendingSlap(event);
     dto.canManage = await canManageEvent(req, event);
     redactManagement(dto);
@@ -1109,7 +1127,7 @@ router.get(
     const event = await Event.findOne({ joinCode: normalized });
     if (!event) return res.status(404).json({ error: 'Event not found.' });
 
-    const dto = await loadEventDto(event);
+    const dto = await loadEventDto(event, req.user?.id);
     dto.pendingSlap = await computePendingSlap(event);
     dto.canManage = await canManageEvent(req, event);
     redactManagement(dto);
@@ -1272,16 +1290,43 @@ router.post(
       }
     }
 
-    // Optional explicit "this is me" link: a logged-in account with no roster
-    // identity yet may adopt the claimed roster person (only if no other account
-    // owns it). NEVER for an admin or PIN-protected member — otherwise a one-time
-    // PIN would become a permanent PIN-free admin claim ("play as me" skips the PIN
-    // for your own linked identity), defeating the P0 takeover protection. Those
-    // identities are linked only via an explicit, host-mediated invite designation.
-    if (req.body?.link === true && req.user && !ownUserId
-        && !member.isAdmin && !member.claimPin) {
-      const taken = await Account.exists({ userId, _id: { $ne: req.user.id } });
-      if (!taken) await Account.updateOne({ _id: req.user.id }, { $set: { userId } });
+    // Per-event identity: bind this logged-in account to THIS roster slot in THIS
+    // event so the event shows up in their "my events" list — without committing to
+    // a global "this is me everywhere" identity. Managers are excluded: a host
+    // already sees the event (owner/co-admin), and the "play for a player" proxy
+    // claims with the host's JWT present — we must NOT bind the host's account to the
+    // proxied player. A legacy `link:true` from old clients is now a no-op (claim no
+    // longer writes the global Account.userId; that link is invite-mediated only).
+    if (req.user && !canManage) {
+      const accountId = req.user.id;
+      const mine = await EventMember.findOne({ eventId: event._id, accountId }).select('userId');
+      if (mine && String(mine.userId) !== String(userId)) {
+        // Already joined this event as a DIFFERENT player — never silently re-point
+        // (that would orphan their prior scores); the host can move them instead.
+        throw new RuleViolation(
+          'Du är redan med som en annan spelare i det här evenemanget. Värden får byta din plats.',
+          409,
+        );
+      }
+      if (!mine) {
+        try {
+          // Attach only if this slot is free or already ours — never steal a slot
+          // another login claimed. The partial-unique {eventId,accountId} index
+          // backstops a concurrent double-attach (caught below).
+          await EventMember.updateOne(
+            { _id: member._id, $or: [{ accountId: null }, { accountId }] },
+            { $set: { accountId } },
+          );
+        } catch (e) {
+          if (!(e && e.code === 11000)) throw e;
+          const fresh = await EventMember.findOne({ eventId: event._id, accountId }).select('userId');
+          if (fresh && String(fresh.userId) !== String(userId)) {
+            throw new RuleViolation(
+              'Du är redan med som en annan spelare i det här evenemanget.', 409,
+            );
+          }
+        }
+      }
     }
 
     const joinable = (

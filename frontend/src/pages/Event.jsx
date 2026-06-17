@@ -87,7 +87,7 @@ export default function Event() {
   const { search } = useLocation(); // reactive query string (so a 2nd QR scan re-claims)
   const { toast, show } = useToast();
   const { hasWebPush } = useBootstrap();
-  const { user, patchUser } = useAuth();
+  const { user } = useAuth();
 
   const [event, setEvent] = useState(null);
   const [standings, setStandings] = useState(null);
@@ -112,7 +112,6 @@ export default function Event() {
   const [shareOpen, setShareOpen] = useState(false); // QR/share modal (render-only)
   const [pinFor, setPinFor] = useState(null); // roster member awaiting a claim PIN
   const [pinInput, setPinInput] = useState('');
-  const [linkMe, setLinkMe] = useState(false); // opt-in: link account to the picked roster person
   const [confirmLeave, setConfirmLeave] = useState(false); // "leave event" confirmation
 
   const eventRef = useRef(null);
@@ -356,20 +355,23 @@ export default function Event() {
   // ── Player actions ──────────────────────────────────────────────────────────
   // `pin` is required for PIN-protected roster members (admins + any the host
   // protected) unless this is the caller's own logged-in identity.
-  const claim = async (userId, pin, link) => {
+  const claim = async (userId, pin) => {
     setBusy(true);
     try {
-      const res = await claimEvent(event.joinCode, userId, pin, link);
+      const res = await claimEvent(event.joinCode, userId, pin);
       persistClaim(id, res, event?.activities);
       setEventName(res.displayName);
       setPinFor(null);
-      // If we asked to link and it bound, reflect it so the "is this me" prompt
-      // stops showing and link stops being offered.
-      if (link && res.userId && user && !user.userId) patchUser({ userId: res.userId });
       await refreshStandings();
       await reload();
     } catch (err) {
-      show(err?.message || 'Kunde inte gå med.');
+      // 409: a logged-in user already joined this event as a different player —
+      // the per-event binding refuses to re-point (would orphan their scores).
+      if (err?.status === 409) {
+        show('Du är redan med som en annan spelare i det här evenemanget. Värden får byta din plats.');
+      } else {
+        show(err?.message || 'Kunde inte gå med.');
+      }
     } finally {
       setBusy(false);
     }
@@ -388,12 +390,10 @@ export default function Event() {
     if (!claimUser || claimedUserRef.current === claimUser) return;
     claimedUserRef.current = claimUser;
     const pin = params.get('pin') || undefined;
-    // Logged in with no roster identity yet? Bind this scanned identity to the
-    // account (link:true) so the event persists on their profile and they can
-    // re-join later via "Spela som mig" — no QR/code needed. Server-side this only
-    // binds PIN-free, non-admin members to accounts that have no roster link yet.
-    const link = !!(user && !user.userId);
-    claim(claimUser, pin, link).finally(() => navigate(`/e/${id}`, { replace: true }));
+    // A logged-in scanner is bound to this slot FOR THIS EVENT server-side (from the
+    // JWT) so the event persists on their profile and they can re-join later via
+    // "Spela som mig" — no extra param needed; managers are excluded server-side.
+    claim(claimUser, pin).finally(() => navigate(`/e/${id}`, { replace: true }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event, search]);
 
@@ -860,14 +860,7 @@ export default function Event() {
           {user ? (
             <button type="button" className="btn block" onClick={claimAsMe} disabled={busy}>Spela som mig ({user.displayName || user.username})</button>
           ) : null}
-          {user && !user.userId ? (
-            <label className="row small" style={{ gap: 6, alignItems: 'center' }}>
-              <input type="checkbox" style={{ width: 'auto', minHeight: 'auto' }} checked={linkMe} onChange={(e) => setLinkMe(e.target.checked)} />
-              Det här är jag — koppla mitt konto till spelaren jag väljer
-            </label>
-          ) : null}
           {(event.members || []).map((m) => {
-            const link = user && !user.userId ? linkMe : undefined;
             if (m.needsPin && pinFor?.id === m.id) {
               return (
                 <div key={m.id} className="row" style={{ gap: 6 }}>
@@ -882,12 +875,14 @@ export default function Event() {
                 </div>
               );
             }
+            // isMe: the backend marked this roster slot as the logged-in caller's own
+            // per-event identity — highlight it (non-ghost) and badge it "· Du".
             return (
               <button
-                key={m.id} type="button" className="btn block ghost" disabled={busy}
-                onClick={() => (m.needsPin ? (setPinFor(m), setPinInput('')) : claim(m.id, undefined, link))}
+                key={m.id} type="button" className={`btn block ${m.isMe ? '' : 'ghost'}`} disabled={busy}
+                onClick={() => (m.needsPin ? (setPinFor(m), setPinInput('')) : claim(m.id))}
               >
-                {m.needsPin ? '🔒 ' : ''}{m.name}
+                {m.needsPin ? '🔒 ' : ''}{m.name}{m.isMe ? <span className="muted small"> · Du</span> : null}
               </button>
             );
           })}
