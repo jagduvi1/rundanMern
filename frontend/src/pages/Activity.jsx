@@ -314,7 +314,17 @@ export default function Activity() {
   return (
     <>
       {toast}
-      {activity.eventId && !siblings ? (
+      {activity.eventId && siblings ? (
+        <div style={navBar}>
+          {siblings.prev ? (
+            <Link className="btn ghost sm" to={`/a/${siblings.prev.id}`} title={siblings.prev.title} style={navLinkLeft}>‹ {siblings.prev.title}</Link>
+          ) : <span style={navLink} />}
+          <Link className="btn ghost sm" to={`/e/${activity.eventId}`} style={{ ...navLink, flexShrink: 0, flex: '0 0 auto' }}>Totalställning</Link>
+          {siblings.next ? (
+            <Link className="btn ghost sm" to={`/a/${siblings.next.id}`} title={siblings.next.title} style={navLinkRight}>{siblings.next.title} ›</Link>
+          ) : <span style={navLink} />}
+        </div>
+      ) : activity.eventId ? (
         <Link className="btn ghost sm" to={`/e/${activity.eventId}`} style={{ alignSelf: 'flex-start' }}>‹ Alla aktiviteter</Link>
       ) : null}
 
@@ -368,20 +378,6 @@ export default function Activity() {
 
       {activity.status !== ActivityStatus.Draft ? (
         <PhotoWall activity={activity} participant={session} canManage={canManage} />
-      ) : null}
-
-      {activity.eventId && siblings ? (
-        <div style={navBar}>
-          {siblings.prev ? (
-            <Link className="btn ghost sm" to={`/a/${siblings.prev.id}`} title={siblings.prev.title} style={navLinkLeft}>‹ {siblings.prev.title}</Link>
-          ) : <span style={navLink} />}
-          <Link className="btn ghost sm" to={`/e/${activity.eventId}`} style={{ ...navLink, flexShrink: 0, flex: '0 0 auto' }}>Totalställning</Link>
-          {siblings.next ? (
-            <Link className="btn ghost sm" to={`/a/${siblings.next.id}`} title={siblings.next.title} style={navLinkRight}>{siblings.next.title} ›</Link>
-          ) : <span style={navLink} />}
-        </div>
-      ) : activity.eventId ? (
-        <Link className="btn ghost block" to={`/e/${activity.eventId}`}>← Tillbaka till alla aktiviteter</Link>
       ) : null}
 
       {canManage && !isProxying() ? (
@@ -502,7 +498,6 @@ function renderCentral(ctx) {
 }
 
 const navBar = {
-  position: 'sticky', bottom: 0, zIndex: 20,
   display: 'flex', alignItems: 'center',
   justifyContent: 'space-between', gap: 4, padding: '.45rem .5rem',
   background: 'var(--surface)', borderRadius: 'var(--radius-sm, 8px)',
