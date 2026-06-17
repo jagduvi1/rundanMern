@@ -268,7 +268,9 @@ export default function MusicQuizPlay({ activity, participant }) {
         const res = results.get(String(q.id));
         const rem = mine ? null : liveRemaining(q, live);
         const choice = isChoice(q);
-        const timeUp = !mine && choice && live.has(String(q.id)) && rem == null;
+        // The answer window locks tap-the-artist rounds and, when speed scoring is
+        // on, free-text rounds too — but never a plain (untimed) music quiz.
+        const timeUp = !mine && (choice || activity.speedScoring) && live.has(String(q.id)) && rem == null;
 
         return (
           <div className="card stack" key={q.id}>
@@ -373,8 +375,11 @@ function AnsweredCard({ q, mine, res, choice }) {
           {!choice && res.correctYear != null ? ` · År ${res.yearPoints > 0 ? '✓' : '✗'} — ${res.correctYear}` : ''}
         </div>
       ) : null}
-      <div style={{ marginTop: '.25rem' }}>
+      <div style={{ marginTop: '.25rem', display: 'flex', alignItems: 'center', gap: '.5rem' }}>
         <b>+{mine.awardedPoints}</b>
+        {res?.elapsedSeconds != null ? (
+          <span className="muted small">⏱ {res.elapsedSeconds} s</span>
+        ) : null}
       </div>
     </div>
   );

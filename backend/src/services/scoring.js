@@ -2,15 +2,16 @@
 // answer-evaluation logic from `GameService.cs` (Quiz / Tipspromenad / MusicQuiz).
 //
 // Everything here is SIDE-EFFECT FREE: no DB, no clock except the optional `now`
-// passed into scoreAnswer's speed-bonus (so it stays testable / fakeable). The
+// passed into scoreAnswer's speed scoring (so it stays testable / fakeable). The
 // scoreboard and the event standings both rank through `rankKey` /
 // `pushesUnscoredLast` so they can never diverge — this is the single source of
 // ranking truth (see spec §2).
 const { ActivityType, QuestionKind, ScoringMode } = require('../constants/enums');
 const { RuleViolation } = require('../middleware/error');
 
-// MusicQuiz fastest-to-answer window in seconds (the speed bonus decays to 0
-// across it). Mirrors GameService.SpeedWindowSeconds.
+// MusicQuiz answer window in seconds: drives the player/host countdown and the
+// auto-finish cutoff, and (in Kahoot speed mode) caps the time penalty charged
+// when a track was answered without a start stamp. Mirrors GameService.SpeedWindowSeconds.
 const SPEED_WINDOW_SECONDS = 30;
 // Hitster year scoring tolerance: within this many years earns half credit.
 const YEAR_TOLERANCE = 2;
@@ -219,7 +220,7 @@ function evaluateNonMusic(question, submission) {
  * Score a single answer submission against a question. Reproduces the scoring
  * branch of GameService.SubmitAnswerAsync for BOTH question games (Quiz /
  * Tipspromenad — MC / TrueFalse / FreeText) and MusicQuiz (song + artist match,
- * optional Hitster year closeness, optional graduated speed bonus).
+ * optional Hitster year closeness, optional Kahoot-style speed scoring).
  *
  * It does NOT persist anything and does NOT enforce activity status / duplicate
  * answers — that stays in the game-write service. It only computes correctness
@@ -230,7 +231,7 @@ function evaluateNonMusic(question, submission) {
  *                              artistText?, year? }
  * @param {object} [ctx]     { activity?, now?: () => Date }. `activity` is needed
  *                           for MusicQuiz (type + speedScoring); `now` lets tests
- *                           fake the speed-bonus clock (defaults to real time).
+ *                           fake the speed-scoring clock (defaults to real time).
  * @returns {{
  *   isCorrect:boolean, awardedPoints:number,
  *   selectedOptionId:(*|null), freeText:(string|null), artistText:(string|null),
@@ -247,8 +248,9 @@ function scoreAnswer(question, submission, ctx = {}) {
   const isMusic = !!activity && activity.type === ActivityType.MusicQuiz;
 
   if (isMusic) {
-    // Song / artist / (Hitster) year are scored independently — song and artist
-    // each worth the full track points; the year is scored separately.
+    // Song / artist / (Hitster) year. In the classic (non-speed) mode song and
+    // artist each earn the full track points and the year is scored separately;
+    // in Kahoot speed mode (below) they instead share a single 100-point award.
     const song = (submission.freeText || '').trim();
     const artist = (submission.artistText || '').trim();
     const asksYear = question.releaseYear !== null && question.releaseYear !== undefined;
@@ -263,19 +265,44 @@ function scoreAnswer(question, submission, ctx = {}) {
     const yearPoints = scoreYear(guessedYear, question.releaseYear, points);
 
     const isCorrect = songOk && artistOk;
-    let awarded = (songOk ? points : 0) + (artistOk ? points : 0) + yearPoints;
 
-    // Speed bonus (opt-in, Kahoot-style): only when SpeedScoring is on, the host
-    // started this track (playStartedUtc set), AND the answer is GENUINELY right
-    // (correct song/artist, or an EXACT year — a merely close year does NOT
-    // unlock it). The bonus decays linearly from full points to 0 across 30s.
-    const exactYear = asksYear && guessedYear !== null
-      && question.releaseYear === guessedYear;
-    if (activity.speedScoring && (songOk || artistOk || exactYear) && question.playStartedUtc) {
-      const startedAt = new Date(question.playStartedUtc).getTime();
-      const elapsed = (now().getTime() - startedAt) / 1000;
-      const fraction = Math.min(1, Math.max(0, 1 - elapsed / SPEED_WINDOW_SECONDS));
-      awarded += Math.round(points * fraction);
+    let awarded;
+    if (activity.speedScoring) {
+      // Kahoot-style scoring: a fully correct answer is worth 100 points minus
+      // the seconds it took to answer (the host starts each track, which stamps
+      // playStartedUtc). The 100 is split evenly across the components this track
+      // grades, so a partial answer earns a proportional share:
+      //   • tap-the-artist (musicChoices): artist is the only component → 100
+      //   • free text: song + artist (+ release year when the track asks for it)
+      // The release year folds into that same 100 (exact = full share, within
+      // YEAR_TOLERANCE = half share) rather than adding points on top.
+      let elapsed = null;
+      if (question.playStartedUtc) {
+        elapsed = Math.floor((now().getTime() - new Date(question.playStartedUtc).getTime()) / 1000);
+      }
+      // No start stamp means the answer can't be timed — charge the full window
+      // rather than handing out an un-penalised 100.
+      const timePenalty = Math.max(0, elapsed != null ? elapsed : SPEED_WINDOW_SECONDS);
+
+      const tapArtist = !!activity.musicChoices; // tap-the-artist mode (vs free text)
+      const gradeSong = !tapArtist;     // the song title is hidden in tap-the-artist mode
+      const gradeArtist = true;         // the artist is always gradeable
+      const gradeYear = !tapArtist && asksYear;
+      const componentCount = (gradeSong ? 1 : 0) + (gradeArtist ? 1 : 0) + (gradeYear ? 1 : 0);
+      const share = componentCount > 0 ? 100 / componentCount : 0;
+
+      let base = 0;
+      if (gradeSong && songOk) base += share;
+      if (gradeArtist && artistOk) base += share;
+      if (gradeYear && guessedYear !== null) {
+        const delta = Math.abs(guessedYear - question.releaseYear);
+        if (delta === 0) base += share;
+        else if (delta <= YEAR_TOLERANCE) base += share / 2;
+      }
+
+      awarded = base > 0 ? Math.max(0, Math.round(base) - timePenalty) : 0;
+    } else {
+      awarded = (songOk ? points : 0) + (artistOk ? points : 0) + yearPoints;
     }
 
     return {

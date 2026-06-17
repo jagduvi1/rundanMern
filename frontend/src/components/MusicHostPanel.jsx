@@ -169,7 +169,6 @@ export default function MusicHostPanel({ activity }) {
   const playingIndex = tracks.findIndex((t) => t.id === playingId);
   const playingLabel = playingIndex >= 0 ? `Spår ${playingIndex + 1}` : '';
   const liveRemaining = live ? Math.max(0, live.window - secondsSince(live.start)) : 0;
-  const windowSec = live?.window || 30;
 
   return (
     <div className="card stack" style={{ borderColor: 'var(--accent)' }}>
@@ -180,7 +179,7 @@ export default function MusicHostPanel({ activity }) {
           : 'Spela varje spår högt. '}
         Tryck <b>Starta & spela</b> för att avslöja ett spår för spelarna och spela upp det
         {activity.speedScoring
-          ? ` och starta en snabbast-svar-runda — ett rätt svar ger mer ju snabbare det kommer in (bonusen avtar över ${windowSec} s).`
+          ? ` och starta en snabbast-svar-runda — rätt svar ger 100 poäng minus antalet sekunder det tog att svara.`
           : '.'}
         {' '}Spelarna ser ett spår först när du startat det, och i tryck-på-artisten-läget låses deras val när tiden går ut. Den här panelen är bara din.
       </p>

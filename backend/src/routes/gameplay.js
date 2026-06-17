@@ -68,7 +68,7 @@ const photoUpload = multer({
 
 // Build the AnswerResultDto for a stored answer (port of BuildAnswerResultAsync).
 // answeredCount = the team's total submitted answers across the activity.
-async function buildAnswerResult(participantId, question, answer, totalQuestions, isMusic) {
+async function buildAnswerResult(participantId, question, answer, totalQuestions, isMusic, activity) {
   const answeredCount = await Answer.countDocuments({ participantId });
   const dto = {
     questionId: idStr(question),
@@ -84,13 +84,21 @@ async function buildAnswerResult(participantId, question, answer, totalQuestions
     yearPoints: 0,
   };
   if (isMusic) {
-    // Reveal this track's answers to the team that just answered it.
     dto.songCorrect = scoring.matches(answer.freeText, question.acceptedFreeTextAnswer);
     dto.artistCorrect = scoring.matches(answer.artistText, question.acceptedArtist);
     dto.correctSong = question.acceptedFreeTextAnswer ?? null;
     dto.correctArtist = question.acceptedArtist ?? null;
     dto.correctYear = question.releaseYear ?? null;
     dto.yearPoints = scoring.scoreYear(answer.guessedYear, question.releaseYear, question.points);
+    // Surface the answer time only when speed scoring actually drove the score —
+    // a wrong (0-point) answer wasn't timed into anything, so it shows no ⏱. Clamp
+    // at 0: an answer can't predate the start stamp (defends against clock skew).
+    if (activity && activity.speedScoring && question.playStartedUtc
+      && answer.submittedUtc && answer.awardedPoints > 0) {
+      dto.elapsedSeconds = Math.max(0, Math.floor(
+        (new Date(answer.submittedUtc).getTime() - new Date(question.playStartedUtc).getTime()) / 1000,
+      ));
+    }
   }
   return dto;
 }
@@ -165,7 +173,7 @@ router.post('/:id/answers', asyncHandler(async (req, res) => {
   // quiz un-finalized (the MusicQuiz time-finish race).
   const existing = await Answer.findOne({ questionId: question._id, participantId: participant._id });
   if (existing) {
-    const dup = await buildAnswerResult(participant._id, question, existing, totalQuestions, isMusic);
+    const dup = await buildAnswerResult(participant._id, question, existing, totalQuestions, isMusic, activity);
     await pushScoreboard(id);
     if (await tryAutoFinishQuestions(activity)) {
       emit.activityStatusChanged(id, { activityId: idStr(activity), status: activity.status });
@@ -175,12 +183,15 @@ router.post('/:id/answers', asyncHandler(async (req, res) => {
   }
 
   // Score the submission (pure). scoreAnswer throws RuleViolation on bad input.
+  // One timestamp drives both the time penalty and the stored submittedUtc, so the
+  // seconds shown to the player always match the seconds deducted from the score.
+  const submittedAt = new Date();
   const scored = scoring.scoreAnswer(question, {
     selectedOptionId: r.selectedOptionId,
     freeText: r.freeText,
     artistText: r.artistText,
     year: r.year,
-  }, { activity, now: () => new Date() });
+  }, { activity, now: () => submittedAt });
 
   let answer;
   try {
@@ -193,20 +204,20 @@ router.post('/:id/answers', asyncHandler(async (req, res) => {
       guessedYear: scored.guessedYear,
       isCorrect: scored.isCorrect,
       awardedPoints: scored.awardedPoints,
-      submittedUtc: new Date(),
+      submittedUtc: submittedAt,
     });
   } catch (e) {
     // (questionId, participantId) uniqueness race → return the winning row.
     if (e && e.code === 11000) {
       const winner = await Answer.findOne({ questionId: question._id, participantId: participant._id });
       if (winner) {
-        return res.json(await buildAnswerResult(participant._id, question, winner, totalQuestions, isMusic));
+        return res.json(await buildAnswerResult(participant._id, question, winner, totalQuestions, isMusic, activity));
       }
     }
     throw e;
   }
 
-  const result = await buildAnswerResult(participant._id, question, answer, totalQuestions, isMusic);
+  const result = await buildAnswerResult(participant._id, question, answer, totalQuestions, isMusic, activity);
   await pushScoreboard(id);
 
   // Auto-finalize once every participant has answered every question.
