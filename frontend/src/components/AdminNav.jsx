@@ -4,7 +4,8 @@
 // links. Tabs highlight the active section.
 //
 // Props:
-//   active : string — "events" or "people" (highlights that tab). Optional.
+//   active : string — "events", "people", "library", or "accounts" (highlights
+//            that tab). Optional.
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -22,6 +23,7 @@ export default function AdminNav({ active = '' }) {
       <div className="row wrap">
         <Link className={`btn sm ${active === 'events' ? '' : 'ghost'}`} to="/admin">Evenemang</Link>
         <Link className={`btn sm ${active === 'people' ? '' : 'ghost'}`} to="/admin/users">Personer</Link>
+        <Link className={`btn sm ${active === 'library' ? '' : 'ghost'}`} to="/library">Bibliotek</Link>
         {isAdmin ? (
           <Link className={`btn sm ${active === 'accounts' ? '' : 'ghost'}`} to="/admin/accounts">Konton</Link>
         ) : null}
