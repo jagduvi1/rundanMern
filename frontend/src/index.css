@@ -325,6 +325,7 @@ label { font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 6px;
 .arcade-timer i { display: block; height: 100%; border-radius: 999px; transform-origin: left;
   background: linear-gradient(90deg, #2ee6c8, #ffd23d 55%, #ff4d4d); transition: transform 0.2s linear; }
 .arcade-secs { text-align: center; font-weight: 800; font-size: 13px; opacity: 0.85; margin-top: 6px; }
+.arcade-ask { margin-top: 12px; text-align: center; font-family: var(--font-display); font-weight: 800; opacity: 0.85; }
 .arcade-tiles { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
 .arcade-tiles:has(> :nth-child(3)) { grid-template-rows: 1fr 1fr; }
 .arcade-tile { position: relative; border: none; border-radius: 20px; color: #fff; cursor: pointer; overflow: hidden;

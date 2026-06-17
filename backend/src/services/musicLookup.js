@@ -10,6 +10,7 @@
 // left null for the host to type. MusicBrainz REQUIRES a descriptive User-Agent.
 
 const env = require('../config/env');
+const { MusicChoiceMode } = require('../constants/enums');
 
 const API_BASE = 'https://api.spotify.com/v1';
 const HTTP_TIMEOUT_MS = 6000; // matches the C# "music" named HttpClient (6 s)
@@ -498,12 +499,39 @@ function populateChoices(dtos, questions, similar = null) {
   }
 }
 
+// Which field a Kahoot track asks players to tap — 'artist' | 'title' | null.
+// Honours the activity's musicChoiceMode and, for Mix, derives a STABLE per-track
+// choice from the question id (so the question route and the scorer always agree).
+// Degrades gracefully: a title-mode track with no song title becomes an artist tap
+// (and vice-versa); returns null only when the track has neither.
+function choiceFieldFor(activity, question) {
+  if (!activity || !activity.musicChoices) return null;
+  const hasArtist = !!(question && question.acceptedArtist && String(question.acceptedArtist).trim());
+  const hasSong = !!(question && question.acceptedFreeTextAnswer && String(question.acceptedFreeTextAnswer).trim());
+
+  const mode = activity.musicChoiceMode || 0;
+  let field;
+  if (mode === MusicChoiceMode.Title) {
+    field = 'title';
+  } else if (mode === MusicChoiceMode.Mix) {
+    const id = String(question && (question._id !== undefined ? question._id : question.id));
+    field = (hashSeed(`mix:${id}`) % 2 === 0) ? 'artist' : 'title';
+  } else {
+    field = 'artist';
+  }
+
+  if (field === 'title' && !hasSong) field = hasArtist ? 'artist' : null;
+  else if (field === 'artist' && !hasArtist) field = hasSong ? 'title' : null;
+  return field;
+}
+
 module.exports = {
   lookup,
   importPlaylist,
   getPlaylistMeta,
   buildChoices,
   populateChoices,
+  choiceFieldFor,
   // Parsers / id helpers exported for reuse + tests.
   tryGetTrackId,
   tryGetPlaylistId,

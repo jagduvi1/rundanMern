@@ -25,7 +25,7 @@ import { getQuestions } from '../api/questions';
 import { submitAnswer, getMyAnswers } from '../api/gameplay';
 import { getSocket } from '../utils/socket';
 import { ServerEvents } from '../config/socketEvents';
-import { ActivityStatus } from '../config/enums';
+import { ActivityStatus, musicChoicePrompt, musicChoiceSubmit } from '../config/enums';
 import { vibrate } from '../utils/vibrate';
 import { OptionKey } from './QuizPlay';
 import { createParticleEngine } from './arcade/fx';
@@ -214,22 +214,23 @@ export default function ArcadePlay({ activity, participant, board = null, onExit
     return Math.max(0, Math.min(1, frac));
   }
 
-  // ── Answer a Kahoot track (tap the artist) ───────────────────────────────────
+  // ── Answer a Kahoot track (tap the artist or the title, per choiceField) ──────
   async function pick(track, optionText, ev) {
     if (busy || answered.has(String(track.id))) return;
     setBusy(true);
     setError(null);
     const origin = burstOrigin(ev);
+    const sub = musicChoiceSubmit(track.choiceField, optionText);
     try {
       const res = await submitAnswer(activity.id, {
-        questionId: track.id, freeText: '', artistText: optionText, year: null,
+        questionId: track.id, ...sub, year: null,
       });
       if (disposed.current) return;
       setResults((prev) => new Map(prev).set(String(track.id), res));
       setAnswered((prev) => {
         const next = new Map(prev);
         next.set(String(track.id), {
-          questionId: track.id, freeText: '', artistText: optionText, year: null,
+          questionId: track.id, ...sub, year: null,
           isCorrect: res.isCorrect, awardedPoints: res.awardedPoints,
         });
         answeredRef.current = next;
@@ -417,10 +418,12 @@ function ActiveTrack({
       </div>
 
       {mine ? (
-        <Feedback mine={mine} res={res} />
+        <Feedback mine={mine} res={res} field={track.choiceField} />
       ) : timeUp ? (
         <div className="arcade-timeup">⏰ Tiden är ute — du hann inte låsa ett svar.</div>
       ) : isKahoot ? (
+        <>
+        <div className="arcade-ask">{musicChoicePrompt(track.choiceField)}</div>
         <div className="arcade-tiles">
           {track.options.map((opt, i) => (
             <button
@@ -436,6 +439,7 @@ function ActiveTrack({
             </button>
           ))}
         </div>
+        </>
       ) : (
         <FreeText track={track} song={song} setSong={setSong} artist={artist} setArtist={setArtist} yr={yr} setYr={setYr} busy={busy} onLock={onLock} />
       )}
@@ -443,14 +447,16 @@ function ActiveTrack({
   );
 }
 
-function Feedback({ mine, res }) {
+function Feedback({ mine, res, field }) {
   const won = (mine.awardedPoints || 0) > 0;
+  // Tap rounds grade one component — reveal whichever this track asked for.
+  const correct = field === 'title' ? res?.correctSong : res?.correctArtist;
   return (
     <div className={`arcade-fb ${won ? 'ok' : 'no'}`}>
       <span className="big">{won ? 'Rätt!' : 'Nära!'}</span>
       <span className="sub">
         {won ? 'Snyggt svarat' : 'Ingen panik — nästa kommer.'}
-        {res?.correctArtist ? <><br />Rätt svar: <b>{res.correctArtist}</b></> : null}
+        {correct ? <><br />Rätt svar: <b>{correct}</b></> : null}
         {res?.elapsedSeconds != null ? <span className="el"> · ⏱ {res.elapsedSeconds} s</span> : null}
       </span>
       <span className="pts">{won ? `+${mine.awardedPoints}` : ''}</span>

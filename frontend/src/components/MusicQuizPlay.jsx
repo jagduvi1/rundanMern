@@ -18,6 +18,7 @@ import { getQuestions } from '../api/questions';
 import { submitAnswer, getMyAnswers } from '../api/gameplay';
 import { getSocket } from '../utils/socket';
 import { ServerEvents } from '../config/socketEvents';
+import { musicChoicePrompt } from '../config/enums';
 import Spinner from './Spinner';
 import { OptionButton, OptionKey, optionColor, feedbackStyle } from './QuizPlay';
 
@@ -231,12 +232,14 @@ export default function MusicQuizPlay({ activity, participant }) {
     }
   }
 
-  // Tapping an artist option submits it as the artist guess (clears song/year).
-  function submitChoice(qId, artistText) {
-    setArtist((prev) => new Map(prev).set(String(qId), artistText));
-    setSong((prev) => new Map(prev).set(String(qId), ''));
+  // Tapping an option submits it as the artist OR the song guess, depending on what
+  // the track asks for (choiceField), clearing the other fields.
+  function submitChoice(qId, optionText, field) {
+    const isTitle = field === 'title';
+    setArtist((prev) => new Map(prev).set(String(qId), isTitle ? '' : optionText));
+    setSong((prev) => new Map(prev).set(String(qId), isTitle ? optionText : ''));
     setYear((prev) => new Map(prev).set(String(qId), ''));
-    return submit(qId, { song: '', artist: artistText, year: '' });
+    return submit(qId, { song: isTitle ? optionText : '', artist: isTitle ? '' : optionText, year: '' });
   }
 
   if (loading) {
@@ -259,7 +262,7 @@ export default function MusicQuizPlay({ activity, participant }) {
       <div className="card stack">
         <h2 style={{ margin: 0 }}>Musikquiz</h2>
         <p className="muted small" style={{ margin: 0 }}>
-          Värden spelar låtarna en i taget — {anyOptions ? 'tryck på artisten' : 'skriv låt och artist'} när varje låt dyker upp. {answered.size} av {total} besvarade.
+          Värden spelar låtarna en i taget — {anyOptions ? 'tryck på rätt alternativ' : 'skriv låt och artist'} när varje låt dyker upp. {answered.size} av {total} besvarade.
         </p>
         {error ? <div className="error-text">{error}</div> : null}
       </div>
@@ -292,6 +295,7 @@ export default function MusicQuizPlay({ activity, participant }) {
 
             {!mine && choice && !timeUp ? (
               <div className="stack">
+                <span className="muted small">{musicChoicePrompt(q.choiceField)}</span>
                 {q.options.map((opt, oi) => (
                   <OptionButton
                     key={opt.id}
@@ -301,7 +305,7 @@ export default function MusicQuizPlay({ activity, participant }) {
                     mark=""
                     state=""
                     disabled={busy}
-                    onClick={() => submitChoice(q.id, opt.text)}
+                    onClick={() => submitChoice(q.id, opt.text, q.choiceField)}
                   />
                 ))}
               </div>
@@ -361,21 +365,34 @@ function AnsweredCard({ q, mine, res, choice }) {
   return (
     <div style={feedbackStyle(mine.awardedPoints > 0)}>
       <div>
-        Du sa —{!choice ? <> Låt: <b>{shown(mine.freeText)}</b> ·</> : null} Artist: <b>{shown(mine.artistText)}</b>
-        {!choice && q.asksYear ? ` · År: ${mine.year != null ? mine.year : '—'}` : ''}
+        {choice ? (
+          <>Du sa — Svar: <b>{shown(mine.artistText && mine.artistText.trim() ? mine.artistText : mine.freeText)}</b></>
+        ) : (
+          <>
+            Du sa — Låt: <b>{shown(mine.freeText)}</b> · Artist: <b>{shown(mine.artistText)}</b>
+            {q.asksYear ? ` · År: ${mine.year != null ? mine.year : '—'}` : ''}
+          </>
+        )}
       </div>
       {res ? (
         <div style={{ marginTop: '.25rem' }}>
-          {!choice ? (
+          {choice ? (
+            // Tap round graded one component — show whichever this track asked for.
+            q.choiceField === 'title' ? (
+              <>Låt {res.songCorrect ? '✓' : '✗'}{res.correctSong ? ` — ${res.correctSong}` : ''}</>
+            ) : (
+              <>Artist {res.artistCorrect ? '✓' : '✗'}{res.correctArtist ? ` — ${res.correctArtist}` : ''}</>
+            )
+          ) : (
             <>
               Låt {res.songCorrect ? '✓' : '✗'}
               {res.correctSong ? ` — ${res.correctSong}` : ''}
               {' · '}
+              Artist {res.artistCorrect ? '✓' : '✗'}
+              {res.correctArtist ? ` — ${res.correctArtist}` : ''}
+              {res.correctYear != null ? ` · År ${res.yearPoints > 0 ? '✓' : '✗'} — ${res.correctYear}` : ''}
             </>
-          ) : null}
-          Artist {res.artistCorrect ? '✓' : '✗'}
-          {res.correctArtist ? ` — ${res.correctArtist}` : ''}
-          {!choice && res.correctYear != null ? ` · År ${res.yearPoints > 0 ? '✓' : '✗'} — ${res.correctYear}` : ''}
+          )}
         </div>
       ) : null}
       <div style={{ marginTop: '.25rem', display: 'flex', alignItems: 'center', gap: '.5rem' }}>

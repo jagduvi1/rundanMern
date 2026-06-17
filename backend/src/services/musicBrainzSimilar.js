@@ -67,33 +67,33 @@ async function similarArtists(artist) {
     const match = artists[0];
     const tags = match.tags;
 
-    // Extract the top tag (highest count) to find related artists.
-    let topTag = null;
-    if (Array.isArray(tags) && tags.length > 0) {
-      // Sort by count descending, pick the best one.
-      const sorted = tags
-        .filter((t) => t && typeof t.name === 'string' && t.name.trim())
-        .sort((a, b) => (b.count || 0) - (a.count || 0));
-      if (sorted.length > 0) topTag = sorted[0].name.trim();
-    }
+    // Take the top few tags (by count), not just one — querying several genre/style
+    // tags yields a far larger, more varied candidate pool, so distractors stop
+    // repeating across questions (which is what forced the fallback to reusing other
+    // quiz artists).
+    const topTags = (Array.isArray(tags) ? tags : [])
+      .filter((t) => t && typeof t.name === 'string' && t.name.trim())
+      .sort((a, b) => (b.count || 0) - (a.count || 0))
+      .slice(0, 3)
+      .map((t) => t.name.trim());
 
-    if (!topTag) { cache.set(key, []); return []; }
+    if (topTags.length === 0) { cache.set(key, []); return []; }
 
-    // Step 2: Search for other artists with the same tag.
-    const tagUrl = `${MB_BASE}/artist/?query=tag:"${encodeURIComponent(topTag)}"&fmt=json&limit=15`;
-    const tagResp = await httpGet(tagUrl);
-    if (!tagResp.ok) { cache.set(key, []); return []; }
-
-    const tagData = await tagResp.json();
-    const related = tagData.artists;
-    if (Array.isArray(related)) {
-      for (const a of related) {
+    // Step 2: gather artists sharing each top tag (dedup, exclude the artist
+    // themselves). Sequential to stay polite to MusicBrainz's ~1 req/s; each tag is
+    // best-effort, so a single failed tag just contributes nothing.
+    const seen = new Set([key]);
+    for (const tag of topTags) {
+      const tagUrl = `${MB_BASE}/artist/?query=tag:"${encodeURIComponent(tag)}"&fmt=json&limit=25`;
+      // eslint-disable-next-line no-await-in-loop
+      const tagResp = await httpGet(tagUrl);
+      if (!tagResp.ok) continue;
+      // eslint-disable-next-line no-await-in-loop
+      const tagData = await tagResp.json();
+      for (const a of (tagData.artists || [])) {
         if (a && typeof a.name === 'string' && a.name.trim()) {
-          const name = a.name.trim();
-          // Exclude the artist themselves.
-          if (name.toLowerCase() !== key) {
-            result.push(name);
-          }
+          const lc = a.name.trim().toLowerCase();
+          if (!seen.has(lc)) { seen.add(lc); result.push(a.name.trim()); }
         }
       }
     }
@@ -106,8 +106,47 @@ async function similarArtists(artist) {
   return result;
 }
 
+/**
+ * Other song TITLES by `artist` — used as plausible distractors for title-mode
+ * music quizzes ("is it this song or that one by the same artist?"). Best-effort
+ * MusicBrainz recording search, distinct by title (recordings repeat across
+ * releases), cached per artist. Returns [] on any failure.
+ *
+ * @param {string} artist
+ * @returns {Promise<string[]>}
+ */
+async function artistTitles(artist) {
+  if (!artist || !artist.trim()) return [];
+
+  const key = `rec:${artist.toLowerCase()}`; // prefixed so it can't collide with similarArtists
+  if (cache.has(key)) return cache.get(key);
+
+  let result = [];
+  try {
+    const url = `${MB_BASE}/recording/?query=artist:"${encodeURIComponent(artist)}"&fmt=json&limit=50`;
+    const resp = await httpGet(url);
+    if (resp.ok) {
+      const data = await resp.json();
+      const seen = new Set();
+      for (const r of (data.recordings || [])) {
+        if (r && typeof r.title === 'string' && r.title.trim()) {
+          const t = r.title.trim();
+          const lc = t.toLowerCase();
+          if (!seen.has(lc)) { seen.add(lc); result.push(t); }
+        }
+      }
+    }
+  } catch {
+    result = [];
+  }
+
+  cache.set(key, result);
+  return result;
+}
+
 module.exports = {
   enabled,
   similarArtists,
+  artistTitles,
   _clearCache: () => cache.clear(),
 };

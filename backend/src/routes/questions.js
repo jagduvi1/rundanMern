@@ -20,6 +20,7 @@ const { RuleViolation, asyncHandler } = require('../middleware/error');
 const { activityManager } = require('../middleware/eventAuth');
 const { pushScoreboard } = require('../services/scoreboard');
 const musicBrainzSimilar = require('../services/musicBrainzSimilar');
+const { choiceFieldFor } = require('../services/musicLookup');
 
 const router = express.Router();
 
@@ -100,22 +101,31 @@ router.get('/:id/questions', asyncHandler(async (req, res) => {
   const questions = await loadOrdered(id);
   const dtos = questions.map(questionDto);
 
-  // Kahoot-style music quiz: attach four artist options (never leaking the right one).
+  // Kahoot-style music quiz: attach four tap options (never leaking the right one).
+  // Each track asks for the artist or the song title (per musicChoiceMode); fetch
+  // the distractor source each track actually needs from MusicBrainz.
   if (activity.type === ActivityType.MusicQuiz && activity.musicChoices) {
-    let similar = null;
+    let similar = null; // correct artist (lc) → similar artist names (artist-mode distractors)
+    let titles = null;  // correct artist (lc) → that artist's other song titles (title-mode distractors)
     if (musicBrainzSimilar.enabled()) {
-      // MusicBrainz "similar artists" per distinct correct artist (best-effort distractors).
       similar = new Map();
+      titles = new Map();
       // eslint-disable-next-line no-restricted-syntax
       for (const q of questions) {
-        const correct = (q.acceptedArtist || '').trim();
-        if (correct.length > 0 && !similar.has(correct.toLowerCase())) {
+        const artist = (q.acceptedArtist || '').trim();
+        if (artist.length === 0) continue;
+        const lc = artist.toLowerCase();
+        const field = choiceFieldFor(activity, q);
+        if (field === 'artist' && !similar.has(lc)) {
           // eslint-disable-next-line no-await-in-loop
-          similar.set(correct.toLowerCase(), await musicBrainzSimilar.similarArtists(correct));
+          similar.set(lc, await musicBrainzSimilar.similarArtists(artist));
+        } else if (field === 'title' && !titles.has(lc)) {
+          // eslint-disable-next-line no-await-in-loop
+          titles.set(lc, await musicBrainzSimilar.artistTitles(artist));
         }
       }
     }
-    populateMusicChoices(dtos, questions, similar);
+    populateMusicChoices(dtos, questions, { activity, similar, titles });
   }
 
   res.json(dtos);
@@ -407,22 +417,37 @@ function seededRng(idString) {
 
 const ciEq = (a, b) => a.toLowerCase() === b.toLowerCase();
 
-// Attach 4 artist options per track (3 distractors + the correct one), shuffled,
-// never flagging the correct one. Port of MusicChoices.Populate.
-function populateMusicChoices(dtos, questions, similar) {
-  const quizArtists = [...new Map(questions
+// Attach 4 tap options per track (3 distractors + the correct answer), shuffled,
+// never flagging the correct one. Each track asks for the ARTIST or the SONG TITLE
+// (per the activity's musicChoiceMode — see choiceFieldFor); the DTO's `choiceField`
+// tells the client which it is so it submits + labels the tap correctly.
+//   • artist tracks: distractors = MusicBrainz-similar artists → built-in pool →
+//     OTHER quiz artists (last resort, so other questions' answers aren't recycled).
+//   • title tracks:  distractors = the artist's OTHER songs (MusicBrainz) → other
+//     quiz titles.
+function populateMusicChoices(dtos, questions, { activity, similar, titles } = {}) {
+  const distinctCi = (arr) => [...new Map(arr.map((a) => [a.toLowerCase(), a])).values()];
+
+  const quizArtists = distinctCi(questions
     .map((q) => (q.acceptedArtist || '').trim())
-    .filter((a) => a.length > 0)
-    .map((a) => [a.toLowerCase(), a])).values()];
+    .filter((a) => a.length > 0));
+  const quizTitles = distinctCi(questions
+    .map((q) => (q.acceptedFreeTextAnswer || '').trim())
+    .filter((t) => t.length > 0));
 
   const byId = new Map(dtos.map((d) => [String(d.id), d]));
 
   // eslint-disable-next-line no-restricted-syntax
   for (const q of questions) {
-    const correct = (q.acceptedArtist || '').trim();
-    if (correct.length === 0) continue; // artist-less track stays typed
+    const field = choiceFieldFor(activity, q);
+    if (!field) continue; // no artist and no title — stays a typed track
     const dto = byId.get(idStr(q));
     if (!dto) continue;
+
+    const correct = field === 'title'
+      ? (q.acceptedFreeTextAnswer || '').trim()
+      : (q.acceptedArtist || '').trim();
+    if (correct.length === 0) continue;
 
     const rng = seededRng(idStr(q));
     const shuffle = (arr) => arr
@@ -430,16 +455,23 @@ function populateMusicChoices(dtos, questions, similar) {
       .sort((x, y) => x[0] - y[0])
       .map(([, v]) => v);
     const notCorrect = (a) => !ciEq(a, correct);
-    const distinctCi = (arr) => [...new Map(arr.map((a) => [a.toLowerCase(), a])).values()];
 
-    const simList = similar && similar.get(correct.toLowerCase()) ? similar.get(correct.toLowerCase()) : [];
-    const sim = shuffle(distinctCi(simList.filter(notCorrect)));
-    const others = shuffle(quizArtists.filter(notCorrect));
-    const pool = shuffle(MUSIC_POOL.filter((p) => !quizArtists.some((a) => ciEq(a, p))));
+    let distractors;
+    if (field === 'title') {
+      const artistLc = (q.acceptedArtist || '').trim().toLowerCase();
+      const sim = shuffle(distinctCi(((titles && titles.get(artistLc)) || []).filter(notCorrect)));
+      const others = shuffle(quizTitles.filter(notCorrect));
+      distractors = distinctCi([...sim, ...others]).slice(0, 3);
+    } else {
+      const sim = shuffle(distinctCi(((similar && similar.get(correct.toLowerCase())) || []).filter(notCorrect)));
+      const pool = shuffle(MUSIC_POOL.filter((p) => !quizArtists.some((a) => ciEq(a, p))));
+      const others = shuffle(quizArtists.filter(notCorrect));
+      distractors = distinctCi([...sim, ...pool, ...others]).slice(0, 3);
+    }
 
-    const distractors = distinctCi([...sim, ...others, ...pool]).slice(0, 3);
     dto.options = shuffle([...distractors, correct])
       .map((text, i) => ({ id: String(i), order: i, text }));
+    dto.choiceField = field;
   }
 }
 
