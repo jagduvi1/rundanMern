@@ -1,7 +1,7 @@
 // MusicEndpoints — the MERN port of Rundan.Server/Endpoints/MusicEndpoints.cs.
 // Music-quiz helpers: design-time auto-fill (look up a track's title/artist/year),
 // bulk playlist import, and the live "start a track" pacing that drives the
-// fastest-to-answer speed bonus.
+// Kahoot-style speed scoring (100 points minus the seconds taken to answer).
 //
 // All routes mount under the shared base `/api/activities` (see app.js); only this
 // router's sub-paths are defined here. Every write authorizes "host OR event admin"
@@ -136,7 +136,7 @@ router.post('/:id/music/import', activityManager, asyncHandler(async (req, res) 
 // ── Live pacing: host starts a track for fastest-to-answer play ───────────────
 
 // POST /api/activities/:id/music/start/:questionId — stamp playStartedUtc (drives
-// the speed bonus), broadcast MusicTrackStarted to the activity room so every
+// the speed scoring), broadcast MusicTrackStarted to the activity room so every
 // player's countdown begins, push the scoreboard, and return MusicTrackStartedDto.
 // 404 if the question is not part of the activity.
 router.post('/:id/music/start/:questionId', activityManager, asyncHandler(async (req, res) => {
