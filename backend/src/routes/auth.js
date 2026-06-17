@@ -209,7 +209,8 @@ router.post('/register', authLimiter, async (req, res) => {
     // Connect the just-created account to the event it was invited to.
     let eventId = null;
     if (invite) {
-      eventId = String(await invites.acceptInvite(account, invite));
+      // A non-designated invitee appears under the display name they entered here.
+      eventId = String(await invites.acceptInvite(account, invite, { name: displayName }));
       eventChanged(eventId);
     }
     sendVerifyEmail(account).catch((e) => console.error('Verify-email send failed (non-fatal):', e.message));

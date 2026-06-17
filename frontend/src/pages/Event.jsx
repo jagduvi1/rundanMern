@@ -17,7 +17,7 @@ import {
   getEvent, getStandings, getTeams, reshuffleTeams, setMembers, updateEvent,
   setEventCode, reorderActivities, setActivitiesStatus, arrive, joinEvent, claimEvent,
   claimEventAsMe, addEventAdmin, removeEventAdmin, deleteEvent,
-  addActivityFromLibrary, restartEvent, setMemberPin, revokeMember,
+  addActivityFromLibrary, restartEvent, setMemberPin, revokeMember, leaveEventSelf,
 } from '../api/events';
 import { inviteToEvent } from '../api/invites';
 import { getFriends } from '../api/me';
@@ -50,6 +50,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useDocumentTitle } from '../utils/useDocumentTitle';
 import { useToast } from '../components/Toast';
 import StatusBadge from '../components/StatusBadge';
+import ConfirmDialog from '../components/ConfirmDialog';
 import Pill from '../components/Pill';
 import SlapCeremony from '../components/SlapCeremony';
 import QrShareModal from '../components/QrShareModal';
@@ -110,6 +111,7 @@ export default function Event() {
   const [pinFor, setPinFor] = useState(null); // roster member awaiting a claim PIN
   const [pinInput, setPinInput] = useState('');
   const [linkMe, setLinkMe] = useState(false); // opt-in: link account to the picked roster person
+  const [confirmLeave, setConfirmLeave] = useState(false); // "leave event" confirmation
 
   const eventRef = useRef(null);
   eventRef.current = event;
@@ -540,6 +542,30 @@ export default function Event() {
   const canChat = !!chatAuthor({ proxyHere, proxy, eventName, viewer, viewerNameSaved, canManage });
   const shareUrl = `${window.location.origin}/e/${event.id}`;
 
+  // A logged-in roster member (not a host) can leave the event themselves. The
+  // owner can't leave (blocked server-side too); co-hosts leave via the Sharing
+  // panel in the host view. Leaving removes their EventMember server-side.
+  const isRosterMember = !!(user && user.userId
+    && (event.members || []).some((m) => m.id === user.userId));
+  const canLeaveAsMember = !isReallyHost && isRosterMember;
+  const doLeaveEvent = async () => {
+    setConfirmLeave(false);
+    setBusy(true);
+    try {
+      await leaveEventSelf(id);
+      // Forget this device's identity for the event so it doesn't think it's still
+      // joined, then return to the events list.
+      saveEventName(id, null);
+      saveEventUserId(id, null);
+      setMemberToken(id, null);
+      show('Du har lämnat evenemanget.');
+      navigate('/events', { replace: true });
+    } catch (err) {
+      show(err?.message || 'Kunde inte lämna evenemanget.');
+      setBusy(false);
+    }
+  };
+
   // ── Reusable render blocks (composed per role below) ──────────────────────────
   // Logic is untouched; these are just the existing markup pieces, named so the
   // host / player / viewer flows can order them without duplication.
@@ -587,6 +613,24 @@ export default function Event() {
           <span className="muted">{availabilityMessage(event)}</span>
         </div>
       ) : null}
+
+      {canLeaveAsMember ? (
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <button type="button" className="btn ghost sm danger" onClick={() => setConfirmLeave(true)} disabled={busy}>
+            Lämna evenemanget
+          </button>
+        </div>
+      ) : null}
+      <ConfirmDialog
+        open={confirmLeave}
+        title="Lämna evenemanget?"
+        message="Du tas bort från evenemangets spelare. Du kan gå med igen med en ny inbjudan eller eventkoden."
+        confirmLabel="Lämna"
+        cancelLabel="Avbryt"
+        danger
+        onConfirm={doLeaveEvent}
+        onCancel={() => setConfirmLeave(false)}
+      />
     </div>
   );
 
@@ -1049,7 +1093,7 @@ function HostControls({
 
   useEffect(() => {
     // The roster list lives on the People page; load it lazily for the picker.
-    import('../api/users').then(({ listUsers }) => listUsers().then(setAllUsers).catch(() => {}));
+    import('../api/users').then(({ listUsers }) => listUsers(id).then(setAllUsers).catch(() => {}));
     if (event.teamShuffle === TeamShuffle.FixedForEvent) {
       getTeams(id).then(setFixedTeams).catch(() => {});
     }
@@ -1633,6 +1677,7 @@ function InviteFriends({ eventId, shareUrl, joinCode, members = [], onToast, onR
   const [qrUrl, setQrUrl] = useState(null);
   const [linkUserId, setLinkUserId] = useState(''); // designate this invite for a roster person
   const [linkEmail, setLinkEmail] = useState('');
+  const [linkName, setLinkName] = useState(''); // name for a brand-new (non-roster) invitee
 
   // Load the host's friends. The section is always open now, so load on mount
   // (the same lazy-once guard as before — calls the unchanged loader).
@@ -1656,20 +1701,27 @@ function InviteFriends({ eventId, shareUrl, joinCode, members = [], onToast, onR
       .map((email) => ({ email }));
 
   const send = async () => {
-    // A half-filled designation (one of player/email) is a mistake — don't drop it silently.
-    if ((linkUserId ? 1 : 0) + (linkEmail.trim() ? 1 : 0) === 1) {
-      onToast?.('Välj både rosterspelare och e-post för en kopplad inbjudan.');
+    const specEmail = linkEmail.trim();
+    // The "specific person" row needs an email; a roster pick designates them,
+    // otherwise the optional name becomes the new person's display name.
+    if ((linkUserId || linkName.trim()) && !specEmail) {
+      onToast?.('Ange en e-postadress för personen du vill bjuda in.');
       return;
     }
     let invites = parseEmails();
-    // A roster-designated invite: the invitee becomes THIS roster person on accept.
-    if (linkUserId && linkEmail.trim()) {
-      const email = linkEmail.trim().toLowerCase();
-      // Drop any plain textarea entry for the same address so the designation wins
-      // (the backend dedupes by email, keeping the first occurrence).
+    if (specEmail) {
+      const email = specEmail.toLowerCase();
+      // Drop any plain textarea entry for the same address so this targeted invite
+      // wins (the backend dedupes by email, keeping the first occurrence).
       invites = invites.filter((i) => i.email.toLowerCase() !== email);
-      const m = members.find((x) => x.id === linkUserId);
-      invites.unshift({ email: linkEmail.trim(), userId: linkUserId, name: m?.name });
+      if (linkUserId) {
+        // Designated: the invitee becomes THIS existing roster person on accept.
+        const m = members.find((x) => x.id === linkUserId);
+        invites.unshift({ email: specEmail, userId: linkUserId, name: m?.name });
+      } else {
+        // New person: the chosen name pre-fills the name they appear under.
+        invites.unshift({ email: specEmail, name: linkName.trim() || null });
+      }
     }
     const accountIds = [...selected];
     if (invites.length === 0 && accountIds.length === 0) {
@@ -1685,6 +1737,7 @@ function InviteFriends({ eventId, shareUrl, joinCode, members = [], onToast, onR
       setSelected(new Set());
       setLinkUserId('');
       setLinkEmail('');
+      setLinkName('');
       await onReload?.();
     } catch (err) {
       onToast?.(err?.message || 'Kunde inte skicka inbjudningar.');
@@ -1730,27 +1783,34 @@ function InviteFriends({ eventId, shareUrl, joinCode, members = [], onToast, onR
           <p className="muted small" style={{ margin: '4px 0 0' }}>Separera med komma eller radbrytning.</p>
         </div>
 
-        {/* Designate a roster player (links their login to the right identity) */}
-        {members.length > 0 ? (
-          <div className="stack" style={{ gap: 6 }}>
-            <b>Bjud in en rosterspelare</b>
-            <p className="muted small" style={{ margin: 0 }}>
-              Koppla en inbjudan till en spelare i rostret — när de skapar ett konto blir de
-              <b> den</b> spelaren (samma poäng, inga dubbletter).
-            </p>
-            <div className="row wrap" style={{ gap: 6 }}>
-              <select value={linkUserId} onChange={(e) => setLinkUserId(e.target.value)} className="grow">
-                <option value="">Välj rosterspelare…</option>
-                {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
+        {/* Invite a specific person: either an existing roster player (they BECOME
+            that player on accept) or a brand-new person under a name you choose
+            (which pre-fills the name they appear under). */}
+        <div className="stack" style={{ gap: 6 }}>
+          <b>Bjud in en specifik person</b>
+          <p className="muted small" style={{ margin: 0 }}>
+            Välj en rosterspelare — då blir de <b>den</b> spelaren (samma poäng, inga dubbletter) —
+            eller ange ett namn för en ny person, så heter de så i spelet.
+          </p>
+          <div className="row wrap" style={{ gap: 6 }}>
+            <select value={linkUserId} onChange={(e) => setLinkUserId(e.target.value)} className="grow">
+              <option value="">Ny person…</option>
+              {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            {!linkUserId ? (
               <input
-                type="email" placeholder="deras@e-post.se"
-                value={linkEmail} onChange={(e) => setLinkEmail(e.target.value)}
-                style={{ minWidth: 160 }}
+                type="text" placeholder="Namn (valfritt)" maxLength={60}
+                value={linkName} onChange={(e) => setLinkName(e.target.value)}
+                style={{ minWidth: 140 }}
               />
-            </div>
+            ) : null}
+            <input
+              type="email" placeholder="deras@e-post.se"
+              value={linkEmail} onChange={(e) => setLinkEmail(e.target.value)}
+              style={{ minWidth: 160 }}
+            />
           </div>
-        ) : null}
+        </div>
 
         {/* From friends */}
         <div className="stack" style={{ gap: 6 }}>

@@ -14,6 +14,9 @@ export const addEventAdmin = (id, email) =>
   apiPost(`/events/${id}/admins`, { email }, { eventId: id });
 export const removeEventAdmin = (id, accountId) =>
   apiDelete(`/events/${id}/admins/${accountId}`, { eventId: id });
+// Leave an event yourself — drops your roster membership and/or co-host grant.
+// The owner can't leave (they delete or hand over the event instead).
+export const leaveEventSelf = (id) => apiPost(`/events/${id}/leave`, {}, { eventId: id });
 export const setEventCode = (id, code) => apiPut(`/events/${id}/code`, { code }, { eventId: id });
 export const reorderActivities = (id, activityIds) =>
   apiPut(`/events/${id}/reorder`, { activityIds }, { eventId: id });

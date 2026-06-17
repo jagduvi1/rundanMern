@@ -41,12 +41,14 @@ async function findPendingInvite(rawToken) {
 //   1. an existing account.userId link wins;
 //   2. else, if the invite DESIGNATED a roster person (designatedUserId) and it
 //      isn't already owned by another account, bind to THAT user;
-//   3. else create a FRESH roster User (deduped by name suffix).
+//   3. else create a FRESH roster User (deduped by name suffix). `preferredName`
+//      (the name the invitee chose for themselves when the invite wasn't tied to
+//      an existing roster person) wins over the account's display name here.
 // Note: we deliberately do NOT adopt a pre-existing same-named roster User by
 // name — that silently merged two different real people who happen to share a
 // name onto one identity (and their cross-event scores). Linking to an existing
 // roster person must be a deliberate act (an invite designation, or claim-link).
-async function resolveRosterUser(account, designatedUserId = null) {
+async function resolveRosterUser(account, designatedUserId = null, preferredName = null) {
   if (account.userId) {
     const existing = await User.findById(account.userId);
     if (existing) return existing;
@@ -69,18 +71,26 @@ async function resolveRosterUser(account, designatedUserId = null) {
       }
     }
   }
-  // Otherwise create a FRESH roster User — retry the dedupe on a name/link race so
-  // accept/register never 500s on a transient duplicate-key.
-  const base = (account.displayName || account.username || 'Player').trim() || 'Player';
+  // Otherwise create a FRESH roster User — prefer the name the invitee entered for
+  // themselves, falling back to the account display name. Retry the dedupe on a
+  // name/link race so accept/register never 500s on a transient duplicate-key.
+  const chosen = (typeof preferredName === 'string' ? preferredName.trim() : '').slice(0, 60);
+  const base = (chosen || account.displayName || account.username || 'Player').trim() || 'Player';
   for (let attempt = 0; attempt < 5; attempt += 1) {
     let name = base;
+    // Dedupe within the account's OWN roster — names are unique per owner now, and
+    // an auto-created identity is owned by the account it represents.
     // eslint-disable-next-line no-await-in-loop
-    for (let i = 2; await User.exists({ name }); i += 1) name = `${base} (${i})`;
+    for (let i = 2; await User.exists({ name, owner: account._id }); i += 1) name = `${base} (${i})`;
     try {
       // eslint-disable-next-line no-await-in-loop
-      const user = await User.create({ name });
+      const user = await User.create({ name, owner: account._id });
+      // Adopt the chosen name as the account's display name too when it had none,
+      // so their profile reflects what they entered when joining.
+      const set = { userId: user._id };
+      if (chosen && !account.displayName) { set.displayName = chosen; account.displayName = chosen; }
       // eslint-disable-next-line no-await-in-loop
-      await Account.updateOne({ _id: account._id }, { $set: { userId: user._id } });
+      await Account.updateOne({ _id: account._id }, { $set: set });
       account.userId = user._id;
       return user;
     } catch (e) {
@@ -91,9 +101,12 @@ async function resolveRosterUser(account, designatedUserId = null) {
 }
 
 // Connect an account to the invite's event: ensure a roster identity +
-// membership, mark the invite accepted. Returns the eventId.
-async function acceptInvite(account, invite) {
-  const user = await resolveRosterUser(account, invite.userId);
+// membership, mark the invite accepted. Returns the eventId. `opts.name` is the
+// name the invitee chose for themselves — only used when a FRESH roster identity
+// is created (i.e. the invite didn't designate an existing roster person and the
+// account isn't already linked to one).
+async function acceptInvite(account, invite, opts = {}) {
+  const user = await resolveRosterUser(account, invite.userId, opts.name || null);
   await EventMember.updateOne(
     { eventId: invite.eventId, userId: user._id },
     { $setOnInsert: { token: crypto.randomUUID(), isAdmin: false, addedUtc: new Date() } },

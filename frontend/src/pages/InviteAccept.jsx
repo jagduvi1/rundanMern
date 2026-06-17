@@ -26,13 +26,18 @@ export default function InviteAccept() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [form, setForm] = useState({ username: '', displayName: '', password: '' });
+  const [freshName, setFreshName] = useState(''); // name an already-logged-in invitee picks
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
         const data = await apiGet(`/invites/${token}`);
-        if (alive) setCtx(data);
+        if (alive) {
+          setCtx(data);
+          // Prefill the display name with any name the host suggested for this invite.
+          setForm((f) => ({ ...f, displayName: f.displayName || data.suggestedName || '' }));
+        }
       } catch (e) {
         if (alive) setLoadErr(e?.message || 'Inbjudan är ogiltig eller har gått ut.');
       }
@@ -41,10 +46,22 @@ export default function InviteAccept() {
   }, [token]);
 
   const sameEmail = user && ctx && (user.email || '').toLowerCase() === ctx.email.toLowerCase();
+  // An invitee who's logged in but isn't tied to an existing roster person (no
+  // designation, no account↔roster link yet) gets a FRESH roster identity — so let
+  // them choose the name they'll appear as instead of silently using their handle.
+  const willCreateFreshIdentity = !!(sameEmail && ctx && !ctx.designatedName && user && !user.userId);
 
-  // Auto-accept once we're logged in as the invited email.
+  // Seed the name picker with the account's display name or the host's suggestion.
   useEffect(() => {
-    if (!sameEmail) return undefined;
+    if (willCreateFreshIdentity) {
+      setFreshName((n) => n || user?.displayName || ctx?.suggestedName || '');
+    }
+  }, [willCreateFreshIdentity, user, ctx]);
+
+  // Auto-accept once we're logged in as the invited email — unless we still need a
+  // name (the fresh-identity case shows a name picker instead).
+  useEffect(() => {
+    if (!sameEmail || willCreateFreshIdentity) return undefined;
     let alive = true;
     (async () => {
       setBusy(true);
@@ -57,7 +74,22 @@ export default function InviteAccept() {
       }
     })();
     return () => { alive = false; };
-  }, [sameEmail, token, navigate]);
+  }, [sameEmail, willCreateFreshIdentity, token, navigate]);
+
+  // Join with the name the (already logged-in) invitee chose.
+  const doJoinWithName = async (e) => {
+    e.preventDefault();
+    if (busy || !freshName.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiPost(`/invites/${token}/accept`, { name: freshName.trim() });
+      navigate(`/e/${res.eventId}`, { replace: true });
+    } catch (err) {
+      setError(err?.message || 'Kunde inte gå med i evenemanget.');
+      setBusy(false);
+    }
+  };
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -108,6 +140,29 @@ export default function InviteAccept() {
   }
 
   if (sameEmail) {
+    // Fresh identity: let the invitee pick the name others will see before joining.
+    if (willCreateFreshIdentity) {
+      return (
+        <Card>
+          <h1>Gå med i {ctx.eventName}</h1>
+          <p className="muted">Vilket namn ska de andra spelarna se?</p>
+          <form className="stack" onSubmit={doJoinWithName}>
+            <div className="field">
+              <label htmlFor="ia-fresh">Ditt namn</label>
+              <input
+                id="ia-fresh" type="text" autoFocus maxLength={60}
+                autoComplete="name" placeholder="Ditt namn"
+                value={freshName} onChange={(e) => setFreshName(e.target.value)}
+              />
+            </div>
+            {error ? <p className="error-text">{error}</p> : null}
+            <button type="submit" className="btn block" disabled={busy || !freshName.trim()}>
+              {busy ? <Spinner /> : 'Gå med'}
+            </button>
+          </form>
+        </Card>
+      );
+    }
     return (
       <Card>
         <h1>Går med i {ctx.eventName}…</h1>
@@ -148,8 +203,12 @@ export default function InviteAccept() {
             <input id="ia-user" type="text" autoComplete="username" value={form.username} onChange={set('username')} required />
           </div>
           <div className="field">
-            <label htmlFor="ia-name">Visningsnamn</label>
-            <input id="ia-name" type="text" autoComplete="name" value={form.displayName} onChange={set('displayName')} placeholder="(valfritt)" />
+            <label htmlFor="ia-name">{ctx.designatedName ? 'Visningsnamn' : 'Ditt namn (visas i spelet)'}</label>
+            <input
+              id="ia-name" type="text" autoComplete="name"
+              value={form.displayName} onChange={set('displayName')}
+              placeholder={ctx.designatedName ? '(valfritt)' : 'Ditt namn'}
+            />
           </div>
           <div className="field">
             <label htmlFor="ia-pass2">Lösenord</label>

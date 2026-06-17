@@ -37,6 +37,9 @@ router.get('/:token', asyncHandler(async (req, res) => {
     invitedByName: inviter ? (inviter.displayName || inviter.username) : null,
     // The roster person this invite is for (so the accept page can say "as Johan").
     designatedName: designated ? designated.name : null,
+    // A non-designated invite carries no roster identity — the host may have
+    // suggested a name; the accept page prefills it and lets the invitee edit it.
+    suggestedName: designated ? null : (invite.name || null),
     hasAccount,
   });
 }));
@@ -53,7 +56,11 @@ router.post('/:token/accept', requireAuth, asyncHandler(async (req, res) => {
       error: `This invite is for ${invite.email}. Log in with that email to accept it.`,
     });
   }
-  const eventId = await invites.acceptInvite(account, invite);
+  // `name` lets an invitee not tied to an existing roster person choose the name
+  // they'll appear as (ignored when the invite designates a roster identity or the
+  // account is already linked to one).
+  const name = typeof req.body?.name === 'string' ? req.body.name : null;
+  const eventId = await invites.acceptInvite(account, invite, { name });
   eventChanged(idStr(eventId));
   return res.json({ eventId: idStr(eventId) });
 }));

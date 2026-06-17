@@ -513,9 +513,20 @@ router.put(
     const userIds = Array.isArray(req.body?.userIds) ? req.body.userIds : [];
     const adminUserIds = Array.isArray(req.body?.adminUserIds) ? req.body.adminUserIds : [];
 
-    // `wanted` = the subset of userIds that are real users.
-    const realUsers = await User.find({ _id: { $in: userIds } }).select('_id').lean();
-    const wanted = new Set(realUsers.map((u) => idStr(u)));
+    const current = await EventMember.find({ eventId: event._id });
+    const currentIds = new Set(current.map((m) => idStr(m.userId)));
+
+    // `wanted` = requested userIds that are real users the caller may use: their
+    // OWN roster people, or anyone already on this event's roster (so a co-host
+    // keeps existing members but can't graft another account's private people in
+    // by guessing ids). Requests use requireAuth, so req.user is always present.
+    const callerId = String(req.user.id);
+    const realUsers = await User.find({ _id: { $in: userIds } }).select('_id owner').lean();
+    const wanted = new Set(
+      realUsers
+        .filter((u) => (u.owner && String(u.owner) === callerId) || currentIds.has(idStr(u)))
+        .map((u) => idStr(u)),
+    );
     const admins = new Set(adminUserIds.map((id) => String(id)));
 
     // Last-admin guard: an event with no account owner and no account co-admins is
@@ -528,9 +539,6 @@ router.put(
         'You must keep at least one admin (or set an event owner) — assign an admin before removing the last one.'
       );
     }
-
-    const current = await EventMember.find({ eventId: event._id });
-    const currentIds = new Set(current.map((m) => idStr(m.userId)));
 
     // Remove members no longer wanted.
     for (const m of current) {
@@ -732,6 +740,59 @@ router.delete(
     const dto = await loadEventDto(event);
     dto.canManage = await canManageEvent(req, event);
     res.json(dto);
+  })
+);
+
+// POST /api/events/:id/leave — the authenticated account removes ITSELF from the
+// event: drops its co-host grant (event.admins) and/or its roster membership
+// (the EventMember for its linked roster user). The OWNER can't leave (they must
+// delete the event or hand it over). Side effect: eventChanged so the host roster
+// updates live. Returns { ok, left }.
+router.post(
+  '/:id/leave',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const event = await Event.findById(req.params.id);
+    if (!event) throw new RuleViolation('Event not found.', 404);
+
+    const uid = String(req.user.id);
+    if (event.owner && String(event.owner) === uid) {
+      throw new RuleViolation("You own this event — you can't leave it. Delete it or hand it over to a co-host first.");
+    }
+
+    const account = await Account.findById(req.user.id).select('userId');
+    const rosterUserId = account && account.userId ? account.userId : null;
+
+    // Last-admin guard (mirrors PUT /members): don't let the final admin abandon an
+    // event with no account owner and no account co-hosts — it would be manageable
+    // only by a global super-admin.
+    if (rosterUserId) {
+      const leavingMember = await EventMember.findOne({ eventId: event._id, userId: rosterUserId });
+      if (leavingMember && leavingMember.isAdmin) {
+        const hasAccountBackstop = !!event.owner || (event.admins || []).length > 0;
+        const otherAdmins = await EventMember.countDocuments({
+          eventId: event._id, isAdmin: true, _id: { $ne: leavingMember._id },
+        });
+        if (!hasAccountBackstop && otherAdmins === 0) {
+          throw new RuleViolation('You are the last admin — make someone else an admin before you leave.');
+        }
+      }
+    }
+
+    let left = false;
+    // Drop the co-host grant, if any.
+    const beforeAdmins = (event.admins || []).length;
+    event.admins = (event.admins || []).filter((a) => String(a) !== uid);
+    if (event.admins.length !== beforeAdmins) { await event.save(); left = true; }
+
+    // Drop the roster membership, if any.
+    if (rosterUserId) {
+      const r = await EventMember.deleteOne({ eventId: event._id, userId: rosterUserId });
+      if (r.deletedCount) left = true;
+    }
+
+    if (left) eventChanged(idStr(event));
+    res.json({ ok: true, left });
   })
 );
 
