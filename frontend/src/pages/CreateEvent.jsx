@@ -35,7 +35,7 @@ const TEAM_SIZES = [
 ];
 
 export default function CreateEvent() {
-  useDocumentTitle('Skapa evenemang · Rundan');
+  useDocumentTitle('Skapa evenemang · Gamedo');
   const navigate = useNavigate();
   const { eventId } = useParams();
   const { toast, show } = useToast();
@@ -127,7 +127,7 @@ export default function CreateEvent() {
       <>
         {toast}
         <div className="card stack center">
-          <img src="/assets/rundan-mark.svg" width={52} height={52} alt="" style={{ margin: '0 auto' }} />
+          <img src="/assets/gamedo-mark.svg" width={52} height={52} alt="" style={{ margin: '0 auto' }} />
           <h1 style={{ margin: 0 }}>Skapa ett evenemang</h1>
           <p className="muted" style={{ margin: 0 }}>Ge dagen ett namn, så bygger vi spelen i nästa steg.</p>
         </div>

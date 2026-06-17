@@ -1,4 +1,4 @@
-# Rundan backend — Express + Mongoose + Socket.IO
+# Gamedo backend — Express + Mongoose + Socket.IO
 FROM node:20-alpine
 
 WORKDIR /app

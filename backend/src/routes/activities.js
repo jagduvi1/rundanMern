@@ -504,7 +504,7 @@ router.get('/library/public', optionalAuth, asyncHandler(async (req, res) => {
   for (const a of items) {
     // eslint-disable-next-line no-await-in-loop
     const dto = await loadActivityDto(a, { canManage: await canManageActivity(req, a) });
-    dto.ownerName = a.owner ? (nameById.get(String(a.owner)) || 'Okänd') : 'Rundan';
+    dto.ownerName = a.owner ? (nameById.get(String(a.owner)) || 'Okänd') : 'Gamedo';
     dto.isMine = !!(a.owner && String(a.owner) === me);
     dtos.push(dto);
   }

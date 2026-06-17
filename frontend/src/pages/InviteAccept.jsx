@@ -16,7 +16,7 @@ function Card({ children }) {
 }
 
 export default function InviteAccept() {
-  useDocumentTitle('Inbjudan · Rundan');
+  useDocumentTitle('Inbjudan · Gamedo');
   const { token } = useParams();
   const navigate = useNavigate();
   const { user, login, register, logout } = useAuth();

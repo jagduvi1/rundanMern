@@ -111,7 +111,7 @@ export function useSpotifyPlayer(connectionId) {
         if (ref.current.player) { log('init', 'player already exists — reusing'); return; }
 
         const player = new window.Spotify.Player({
-          name: 'Rundan (värd)',
+          name: 'Gamedo (värd)',
           getOAuthToken: (cb) => { getToken().then((t) => cb(t || '')); },
           volume: 0.8,
         });

@@ -87,7 +87,7 @@ function EventCard({ ev, joinedName, winner, onEnter, me }) {
 }
 
 export default function Events() {
-  useDocumentTitle('Evenemang · Rundan');
+  useDocumentTitle('Evenemang · Gamedo');
   const navigate = useNavigate();
   const { user } = useAuth();
   const { toast, show } = useToast();
@@ -145,9 +145,9 @@ export default function Events() {
     <>
       {toast}
       <div className="card stack center">
-        <img src="/assets/rundan-mark.svg" width={56} height={56} alt="" style={{ margin: '0 auto' }} />
+        <img src="/assets/gamedo-mark.svg" width={56} height={56} alt="" style={{ margin: '0 auto' }} />
         <h1>Evenemang</h1>
-        <p className="muted">Varje dag på Rundan — välj ett för att hoppa in.</p>
+        <p className="muted">Varje dag på Gamedo — välj ett för att hoppa in.</p>
         {user ? (
           <button type="button" className="btn lg success" onClick={() => navigate('/create')}>+ Skapa evenemang</button>
         ) : null}

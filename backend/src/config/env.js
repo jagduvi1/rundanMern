@@ -47,7 +47,7 @@ const env = {
     .filter(Boolean),
 
   frontendUrl: str(process.env.FRONTEND_URL),
-  appName: process.env.APP_NAME || 'Rundan',
+  appName: process.env.APP_NAME || 'Gamedo',
 
   // Optional shared site gate (credential #1). Empty => open.
   accessCode: str(process.env.ACCESS_CODE),

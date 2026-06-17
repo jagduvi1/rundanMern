@@ -1,7 +1,7 @@
 {
-  "name": "rundan-backend",
+  "name": "gamedo-backend",
   "version": "0.1.0",
-  "description": "Rundan backend — MERN port of the .NET party-games platform (events, live scoreboard, ~8 game types)",
+  "description": "Gamedo backend — MERN port of the .NET party-games platform (events, live scoreboard, ~8 game types)",
   "license": "MIT",
   "main": "server.js",
   "scripts": {
