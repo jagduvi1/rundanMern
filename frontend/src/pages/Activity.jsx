@@ -373,7 +373,7 @@ export default function Activity() {
       {canManage && activity.type === ActivityType.MusicQuiz && activity.status !== ActivityStatus.Draft ? (
         activity.hitsterMode
           ? <HitsterHostPanel activity={activity} />
-          : <MusicHostPanel activity={activity} />
+          : <MusicHostPanel activity={activity} participant={session} />
       ) : null}
 
       {activity.status !== ActivityStatus.Draft ? (
