@@ -22,6 +22,7 @@ const CONFIG_FIELDS = [
   'useManualSeeding', 'tournamentScoring',
   'randomizeQuestions', 'musicChoices', 'speedScoring', 'hitsterMode', 'hitsterCardsToWin',
   'hideQuestionsFromHost',
+  'impostorCount', 'revealCategoryToImpostor', 'impostureScoring',
   'courtLabel', 'scoreEntryMode', 'roundCount', 'playersPerRound',
   'latitude', 'longitude', 'radiusMeters', 'mapCityCount',
 ];
@@ -54,6 +55,9 @@ async function cloneActivity(source, base) {
       trackCount: p.trackCount,
       description: p.description,
     })),
+    // Imposture secret words are authored config — carry them; the live round resets.
+    impostureWords: (source.impostureWords || []).map((w) => ({ word: w.word, category: w.category })),
+    impostureRound: null,
     mapCities: [],
     ...base, // eventId/order/status/inLibrary/isPublic/owner — caller decides
   });

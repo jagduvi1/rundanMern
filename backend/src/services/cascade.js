@@ -6,7 +6,7 @@
 const {
   Event, Activity, Participant, Question, Answer, ScoreEntry, BracketMatch,
   ActivityPhoto, EventMember, EventViewer, Slap, ChatMessage, PushSubscription, User, Account,
-  HitsterGame, Invite,
+  HitsterGame, Invite, ImpostureVote,
 } = require('../models');
 const { deleteUploads } = require('../config/paths');
 
@@ -32,6 +32,16 @@ async function deleteQuestionCascade(questionId) {
 async function deleteParticipantCascade(participantId) {
   await Answer.deleteMany({ participantId });
   await ScoreEntry.deleteMany({ participantId });
+  // Imposture: drop the player's votes (as voter or votee) and remove them from any
+  // live round's impostor set, so the tally doesn't count a ghost or keep a missing
+  // impostor "in play".
+  await ImpostureVote.deleteMany({
+    $or: [{ voterParticipantId: participantId }, { votedParticipantId: participantId }],
+  });
+  await Activity.updateMany(
+    { 'impostureRound.impostorIds': participantId },
+    { $pull: { 'impostureRound.impostorIds': participantId } },
+  );
   // Loose bracket refs (no FK) — null them so deleted players don't dangle.
   await BracketMatch.updateMany({ participantAId: participantId }, { $set: { participantAId: null } });
   await BracketMatch.updateMany({ participantBId: participantId }, { $set: { participantBId: null } });
@@ -53,6 +63,7 @@ async function deleteActivityChildren(activityId) {
     ActivityPhoto.deleteMany({ activityId }),
     Slap.deleteMany({ activityId }),
     HitsterGame.deleteMany({ activityId }),
+    ImpostureVote.deleteMany({ activityId }),
   ]);
 }
 

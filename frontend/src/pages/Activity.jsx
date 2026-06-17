@@ -40,6 +40,8 @@ import MusicHostPanel from '../components/MusicHostPanel';
 import HitsterPlay from '../components/HitsterPlay';
 import HitsterHostPanel from '../components/HitsterHostPanel';
 import ArcadePlay from '../components/ArcadePlay';
+import ImposturePlay from '../components/ImposturePlay';
+import ImpostureHostPanel from '../components/ImpostureHostPanel';
 
 const POLL_MS = 4000;
 const PSESSION_KEY = (id) => `rundan.psession.${id}`;
@@ -489,6 +491,10 @@ export default function Activity() {
           : <MusicHostPanel activity={activity} participant={session} />
       ) : null}
 
+      {canManage && activity.type === ActivityType.Imposture && activity.status !== ActivityStatus.Draft ? (
+        <ImpostureHostPanel activity={activity} />
+      ) : null}
+
       {activity.status !== ActivityStatus.Draft ? (
         <PhotoWall activity={activity} participant={session} canManage={canManage} />
       ) : null}
@@ -619,6 +625,7 @@ function renderCentral(ctx) {
         // don't also mount the player card for them (two competing answer surfaces).
         : (canManage ? null : <MusicQuizPlay activity={activity} participant={session} />);
       case ActivityType.Memory: return <MemoryPlay activity={activity} participant={session} />;
+      case ActivityType.Imposture: return <ImposturePlay activity={activity} participant={session} />;
       default: return <BouleBoard activity={activity} participant={session} participants={participants} canManage={canManage} />;
     }
   }

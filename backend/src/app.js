@@ -30,6 +30,7 @@ const bracketRoute = require('./routes/bracket');
 const gamesRoute = require('./routes/games');
 const musicRoute = require('./routes/music');
 const hitsterRoute = require('./routes/hitster');
+const impostureRoute = require('./routes/imposture');
 const simulationRoute = require('./routes/simulation');
 const spotifyRoute = require('./routes/spotify');
 const libraryRoute = require('./routes/library');
@@ -163,6 +164,7 @@ app.use('/api/activities', bracketRoute);
 app.use('/api/activities', gamesRoute);
 app.use('/api/activities', musicRoute);
 app.use('/api/activities', hitsterRoute);
+app.use('/api/activities', impostureRoute);
 app.use('/api/activities', simulationRoute);
 
 // Question library (/api/question-library/*, /api/activities/:id/questions/from-library).

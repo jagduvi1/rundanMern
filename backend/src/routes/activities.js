@@ -215,6 +215,12 @@ router.put('/:id/status', activityManager, asyncHandler(async (req, res) => {
     }
   }
 
+  // Leaving Draft for an Imposture game: need at least one secret word to play.
+  if (leavingDraft && activity.type === ActivityType.Imposture
+    && (activity.impostureWords || []).length === 0) {
+    throw new RuleViolation('Add at least one secret word before starting.', 409);
+  }
+
   if (status === ActivityStatus.Live && activity.startedUtc == null) {
     activity.startedUtc = new Date();
   }
@@ -325,6 +331,16 @@ router.put('/:id', activityManager, asyncHandler(async (req, res) => {
     activity.spotifyConnectionId = owned ? r.spotifyConnectionId : null;
   }
   activity.hideQuestionsFromHost = !!r.hideQuestionsFromHost;
+  // Imposture config (preserve existing values when the field isn't sent).
+  activity.impostorCount = clamp(
+    r.impostorCount != null ? Number(r.impostorCount) : (activity.impostorCount || 1), 1, 5,
+  );
+  if (r.revealCategoryToImpostor != null) {
+    activity.revealCategoryToImpostor = !!r.revealCategoryToImpostor;
+  }
+  if (r.impostureScoring != null) {
+    activity.impostureScoring = clamp(Number(r.impostureScoring), 0, 2);
+  }
   activity.isPublic = !!r.isPublic;
   activity.scoreEntryMode = r.scoreEntryMode != null ? r.scoreEntryMode : activity.scoreEntryMode;
   activity.roundCount = clamp(r.roundCount != null ? r.roundCount : 1, 1, 50);
