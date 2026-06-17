@@ -28,6 +28,7 @@ const Admin = lazy(() => import('./pages/Admin'));
 const Library = lazy(() => import('./pages/Library'));
 const Users = lazy(() => import('./pages/Users'));
 const Accounts = lazy(() => import('./pages/Accounts'));
+const Maintenance = lazy(() => import('./pages/Maintenance'));
 const Diploma = lazy(() => import('./pages/Diploma'));
 const SpotifyCallback = lazy(() => import('./pages/SpotifyCallback'));
 const Login = lazy(() => import('./pages/Login'));
@@ -129,8 +130,16 @@ function AppRoutes() {
           <Route
             path="/admin/accounts"
             element={(
-              <ProtectedRoute>
+              <ProtectedRoute requireAdmin>
                 <Accounts />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/maintenance"
+            element={(
+              <ProtectedRoute requireAdmin>
+                <Maintenance />
               </ProtectedRoute>
             )}
           />
