@@ -30,16 +30,19 @@ const maybeFinishMusic = (activityId) =>
 
 const secondsSince = (start) => Math.floor((Date.now() - start) / 1000);
 
-export default function MusicHostPanel({ activity, participant }) {
+export default function MusicHostPanel({ activity, participant, player = null }) {
   const canPlayInApp = activity?.spotifyConnectionId != null;
   // The host competes too when they have a player session, it's tap-the-artist mode,
   // and the quiz is actually live (the options + answering only exist while live).
   const competing = !!participant && !!activity?.musicChoices
     && activity?.status === ActivityStatus.Live;
-  // The hook no-ops when connectionId is null, so it's safe to call unconditionally.
+  // If a parent owns the Spotify player (so playback survives switching between the
+  // normal and arcade views), use that instance; otherwise create our own. The hook
+  // is still called unconditionally — with null when a player is supplied, so it no-ops.
+  const ownPlayer = useSpotifyPlayer(player ? null : (activity?.spotifyConnectionId || null));
   const {
     ready, error: playerError, play, pause, resume, activate,
-  } = useSpotifyPlayer(activity?.spotifyConnectionId || null);
+  } = player || ownPlayer;
 
   const [tracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(true);
