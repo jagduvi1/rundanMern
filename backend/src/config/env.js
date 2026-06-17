@@ -67,8 +67,11 @@ const env = {
   vapidPrivateKey: str(process.env.VAPID_PRIVATE_KEY),
   vapidSubject: process.env.VAPID_SUBJECT || 'mailto:admin@example.com',
 
-  // Transactional email (optional host flows), via Resend.
-  resendApiKey: str(process.env.RESEND_API_KEY),
+  // Transactional email (optional host flows), via Mailgun.
+  mailgunApiKey: str(process.env.MAILGUN_API_KEY),
+  mailgunDomain: str(process.env.MAILGUN_DOMAIN),
+  // Region base URL — US default; set to https://api.eu.mailgun.net for an EU domain.
+  mailgunApiBase: str(process.env.MAILGUN_API_BASE) || 'https://api.mailgun.net',
   emailFrom: str(process.env.EMAIL_FROM),
 
   // Image upload storage.
@@ -83,7 +86,7 @@ const env = {
   get requiresAccessCode() { return !!this.accessCode; },
   get hasLastFm() { return !!this.lastFmApiKey; },
   get hasWebPush() { return !!(this.vapidPublicKey && this.vapidPrivateKey); },
-  get hasEmail() { return !!this.resendApiKey; },
+  get hasEmail() { return !!(this.mailgunApiKey && this.mailgunDomain); },
 };
 
 module.exports = env;

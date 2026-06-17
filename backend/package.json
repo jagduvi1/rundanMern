@@ -22,7 +22,6 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.6.0",
     "multer": "^2.0.0",
-    "resend": "^6.12.4",
     "socket.io": "^4.7.5",
     "web-push": "^3.6.7"
   },

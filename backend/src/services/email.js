@@ -1,47 +1,48 @@
 const env = require('../config/env');
 
-// Transactional email (host verify / reset / magic-link), via Resend. Entirely
-// optional — when RESEND_API_KEY is unset, isEnabled() is false and the auth
-// routes simply skip sending (username+password still works).
-let client = null;
+// Transactional email (host verify / reset / magic-link), via Mailgun. Entirely
+// optional — when MAILGUN_API_KEY / MAILGUN_DOMAIN are unset, isEnabled() is
+// false and the auth routes simply skip sending (username+password still works).
+// Uses the built-in fetch (Node 18+), so there is no SDK dependency.
 
 function isEnabled() {
   return env.hasEmail;
 }
 
-function getClient() {
-  if (!client && env.resendApiKey) {
-    try {
-      // eslint-disable-next-line global-require
-      const { Resend } = require('resend');
-      client = new Resend(env.resendApiKey);
-    } catch {
-      client = null;
-    }
-  }
-  return client;
-}
-
 async function send({ to, subject, html, text }) {
   if (!isEnabled()) throw new Error('Email service not configured');
-  const c = getClient();
-  if (!c) throw new Error('Email client unavailable');
 
-  // Resend takes the From as a full "Name <addr@domain>" string and returns
-  // { data, error } — it does NOT throw on API errors, so surface `error`
-  // ourselves (e.g. an unverified sending domain) for the callers' logs.
-  const { data, error } = await c.emails.send({
-    from: env.emailFrom || `${env.appName} <noreply@example.com>`,
-    to: Array.isArray(to) ? to : [to],
-    subject,
-    html,
-    text,
+  // Mailgun messages API: POST {base}/v3/{domain}/messages, HTTP Basic auth
+  // "api:<key>", form-encoded. Region base is api.mailgun.net (US) or
+  // api.eu.mailgun.net (EU). Returns 2xx with { id, message }; on failure the
+  // body carries the reason (e.g. an unverified/mismatched sending domain).
+  const url = `${env.mailgunApiBase}/v3/${env.mailgunDomain}/messages`;
+  const form = new URLSearchParams();
+  form.set('from', env.emailFrom || `${env.appName} <noreply@${env.mailgunDomain}>`);
+  form.set('to', Array.isArray(to) ? to.join(', ') : to);
+  form.set('subject', subject);
+  if (text) form.set('text', text);
+  if (html) form.set('html', html);
+
+  const auth = Buffer.from(`api:${env.mailgunApiKey}`).toString('base64');
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: form,
   });
-  if (error) {
-    const detail = typeof error === 'object' ? JSON.stringify(error) : String(error);
-    throw new Error(`Resend send failed: ${detail}`);
+
+  const body = await res.text();
+  if (!res.ok) {
+    throw new Error(`Mailgun send failed (${res.status}): ${body}`);
   }
-  return data;
+  try {
+    return JSON.parse(body); // { id, message }
+  } catch {
+    return { raw: body };
+  }
 }
 
 function wrapTemplate({ title, intro, ctaUrl, ctaLabel, footer }) {
