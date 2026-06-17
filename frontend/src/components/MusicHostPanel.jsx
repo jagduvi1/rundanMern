@@ -219,9 +219,12 @@ export default function MusicHostPanel({ activity, participant }) {
         questionId: t.id, ...musicChoiceSubmit(field, optionText), year: null,
       });
       if (!aliveRef.current) return;
+      // Store the SAME shape the server returns ({ freeText, artistText }) so the
+      // next loadChoices merge (which overwrites by questionId) doesn't blank the
+      // displayed answer — getMyAnswers has no `answerText` field.
       setMyAnswers((prev) => new Map(prev).set(String(t.id), {
         questionId: t.id,
-        answerText: optionText,
+        ...musicChoiceSubmit(field, optionText),
         isCorrect: res?.isCorrect,
         awardedPoints: res?.awardedPoints,
       }));
@@ -240,9 +243,12 @@ export default function MusicHostPanel({ activity, participant }) {
       // Correctness from the awarded score (authoritative, and works even when the
       // host hid the answers from themselves) — mirrors the player view's reveal.
       const gotIt = (mine.awardedPoints || 0) > 0;
+      // The tapped value lives in artistText (artist tracks) or freeText (title
+      // tracks) — whichever the track's choiceField submitted.
+      const answered = mine.artistText || mine.freeText;
       return (
         <div style={feedbackStyle(gotIt)}>
-          Du svarade: <b>{mine.answerText && mine.answerText.trim() ? mine.answerText : '—'}</b>
+          Du svarade: <b>{answered && answered.trim() ? answered : '—'}</b>
           {` ${gotIt ? '✓' : '✗'}`}
           {mine.awardedPoints != null ? <> · <b>+{mine.awardedPoints}</b></> : null}
         </div>
