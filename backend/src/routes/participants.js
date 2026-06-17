@@ -9,14 +9,17 @@
 const express = require('express');
 const crypto = require('crypto');
 
-const { Activity, Participant, Question } = require('../models');
+const {
+  Activity, Participant, Question, Event, EventMember, Account,
+} = require('../models');
 const { ActivityStatus } = require('../constants/enums');
 const { activityDto, participantDto } = require('../services/serializers');
 const { RuleViolation, asyncHandler } = require('../middleware/error');
 const { optionalAuth } = require('../middleware/auth');
-const { canManageActivity, activityManager } = require('../middleware/eventAuth');
+const { canManageActivity, activityManager, resolveMemberUserId } = require('../middleware/eventAuth');
 const { deleteParticipantCascade } = require('../services/cascade');
 const { pushScoreboard } = require('../services/scoreboard');
+const teams = require('../services/teams');
 const emit = require('../socket/emit');
 
 const router = express.Router();
@@ -104,6 +107,48 @@ router.post('/by-code/:code/join', optionalAuth, asyncHandler(async (req, res) =
   await pushScoreboard(activity._id);
 
   res.json(await buildJoinResult(activity, participant));
+}));
+
+// POST /api/activities/:id/join-as-member — a roster member joins THIS activity as
+// their roster TEAM identity, proven by the event member token they already hold
+// (x-rundan-member) or a logged-in account linked to a roster user on this event.
+// Used when an activity opens AFTER the member claimed the event, so the device
+// gets its per-activity participant token without a PIN or a free-name join (which
+// would double-list them as a solo participant alongside their team). Idempotent;
+// returns the same { token, activity, participant } shape as the free-name join.
+router.post('/:id/join-as-member', optionalAuth, asyncHandler(async (req, res) => {
+  const activity = await Activity.findById(req.params.id);
+  if (!activity) throw new RuleViolation('Activity not found.', 404);
+  if (!activity.eventId) throw new RuleViolation('This activity is not part of an event.', 409);
+  if (activity.status !== ActivityStatus.Open && activity.status !== ActivityStatus.Live) {
+    throw new RuleViolation('This activity is not open to join yet.', 409);
+  }
+  const event = await Event.findById(activity.eventId);
+  if (!event) throw new RuleViolation('Event not found.', 404);
+
+  // Resolve the caller's roster identity: their event member token (preferred),
+  // else a logged-in account's linked roster user that's a member of THIS event.
+  let userId = await resolveMemberUserId(req, event._id);
+  if (!userId && req.user) {
+    const acct = await Account.findById(req.user.id).select('userId').lean();
+    const linked = acct && acct.userId ? acct.userId : null;
+    if (linked && (await EventMember.exists({ eventId: event._id, userId: linked }))) {
+      userId = linked;
+    }
+  }
+  if (!userId) {
+    throw new RuleViolation('Open the event and choose your player first.', 403);
+  }
+
+  // Generate (idempotently) the activity's teams from the roster and find ours.
+  const generated = await teams.ensureTeams(event, activity);
+  const myTeam = (generated || []).find(
+    (t) => (t.members || []).some((m) => String(m.userId) === String(userId)),
+  );
+  if (!myTeam) throw new RuleViolation('You are not on a team in this activity.', 409);
+
+  await pushScoreboard(activity._id);
+  res.json(await buildJoinResult(activity, myTeam));
 }));
 
 // GET /api/activities/:id/participants — ordered by join order (id ≈ creation).
