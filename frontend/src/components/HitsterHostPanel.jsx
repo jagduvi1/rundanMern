@@ -26,7 +26,10 @@ export default function HitsterHostPanel({ activity }) {
     aliveRef.current = true;
     Promise.all([
       getHitsterState(activity.id),
-      getAdminQuestions(activity.id),
+      // reveal=true: the host runs the game, so they need the real release years
+      // (and titles) even when "hide answers from host" is on — otherwise every
+      // track comes back masked and the panel shows "0 spår med årtal redo".
+      getAdminQuestions(activity.id, true),
     ]).then(([s, q]) => {
       if (!aliveRef.current) return;
       setState(s);
@@ -200,19 +203,8 @@ export default function HitsterHostPanel({ activity }) {
             </div>
           )}
 
-          {/* Scoreboard */}
-          <div className="stack" style={{ gap: 6 }}>
-            <h3 style={{ margin: 0 }}>Tidslinjer</h3>
-            {state.teams.map((t) => (
-              <div key={t.participantId} className="row" style={{ gap: 8 }}>
-                <span className="grow">
-                  <b>{t.displayName}</b>
-                </span>
-                <span className="pill">{t.cardCount} kort</span>
-                <span className="muted small">bonus {t.bonusCount}/3</span>
-              </div>
-            ))}
-          </div>
+          {/* All teams' timelines (everyone plays against each other) */}
+          <HostTimelines teams={state.teams} />
         </div>
       ) : null}
 
@@ -229,11 +221,48 @@ export default function HitsterHostPanel({ activity }) {
           <button type="button" className="btn sm" onClick={doStart} disabled={busy}>
             Starta om
           </button>
+          <HostTimelines teams={state.teams} />
         </div>
       ) : null}
     </div>
   );
 }
+
+// All teams' timelines (placed cards are public — face-up years), shown to the
+// host so they can follow the race. Mirrors the player view's AllTimelines.
+function HostTimelines({ teams }) {
+  return (
+    <div className="stack" style={{ gap: 8 }}>
+      <h3 style={{ margin: 0 }}>Tidslinjer</h3>
+      {(teams || []).map((t) => (
+        <div key={t.participantId} className="stack" style={{ gap: 4, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
+          <div className="row">
+            <b className="grow">{t.displayName}</b>
+            <span className="pill">{t.cardCount} kort</span>
+            <span className="muted small">bonus {t.bonusCount}/3</span>
+          </div>
+          {(t.cards || []).length ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {t.cards.map((c, i) => (
+                <div key={i} style={hitsterCardStyle}>
+                  <b>{c.year}</b>
+                  <span className="small muted" style={{ textAlign: 'center' }}>{c.title}</span>
+                </div>
+              ))}
+            </div>
+          ) : <span className="muted small">Inga kort ännu.</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const hitsterCardStyle = {
+  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+  padding: '6px 10px', borderRadius: 'var(--radius-sm, 8px)',
+  border: '2px solid var(--accent)', background: 'var(--accent-soft)',
+  minWidth: 64, maxWidth: 120,
+};
 
 const errorStyle = {
   padding: '10px 12px', borderRadius: 'var(--radius-sm, 8px)',
