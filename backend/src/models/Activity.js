@@ -68,6 +68,19 @@ const impostureRoundSchema = new mongoose.Schema({
   guessByParticipantId: { type: mongoose.Schema.Types.ObjectId, default: null },
 }, { _id: false });
 
+// A finished Imposture round, snapshotted at reveal for the end-of-game recap.
+// Names are captured at reveal so the recap survives players later leaving.
+const impostureHistorySchema = new mongoose.Schema({
+  order: { type: Number, default: 0 },
+  word: { type: String, default: null },
+  category: { type: String, default: null },
+  impostors: { type: [String], default: [] }, // display names
+  caught: { type: Boolean, default: false },
+  catchers: { type: [String], default: [] }, // detectives who voted an impostor
+  guess: { type: String, default: null },
+  guessCorrect: { type: Boolean, default: false },
+}, { _id: false });
+
 // ── Activity ────────────────────────────────────────────────────────────────
 // The big polymorphic game instance; many fields are type-specific (quiz,
 // tipspromenad, boule/bracket, score game, word game, map-pin, music, memory).
@@ -157,6 +170,8 @@ const activitySchema = new mongoose.Schema({
   // Imposture: the host-authored secret-word list + the current live round.
   impostureWords: { type: [impostureWordSchema], default: [] },
   impostureRound: { type: impostureRoundSchema, default: null },
+  // Revealed rounds, snapshotted for the end-of-game recap.
+  impostureHistory: { type: [impostureHistorySchema], default: [] },
 });
 
 activitySchema.index({ eventId: 1, order: 1 });

@@ -41,6 +41,7 @@ import HitsterPlay from '../components/HitsterPlay';
 import HitsterHostPanel from '../components/HitsterHostPanel';
 import ImposturePlay from '../components/ImposturePlay';
 import ImpostureHostPanel from '../components/ImpostureHostPanel';
+import ImpostureResults from '../components/ImpostureResults';
 
 const POLL_MS = 4000;
 const PSESSION_KEY = (id) => `rundan.psession.${id}`;
@@ -472,6 +473,9 @@ function renderCentral(ctx) {
     if (status === ActivityStatus.Finished && resultsTypes.includes(type)) {
       return <ResultsSummary activity={activity} />;
     }
+    if (status === ActivityStatus.Finished && type === ActivityType.Imposture) {
+      return <ImpostureResults activity={activity} />;
+    }
     return <div className="card muted">Den här aktiviteten är avslutad.</div>;
   }
 
@@ -518,6 +522,7 @@ function renderCentral(ctx) {
   // 6) Finished (joined)
   if (usesQuestions) return (<><ResultsView activity={activity} session={session} canManage={canManage} /><ResultsSummary activity={activity} /></>);
   if (resultsTypes.includes(type)) return <ResultsSummary activity={activity} />;
+  if (type === ActivityType.Imposture) return <ImpostureResults activity={activity} />;
   if (type === ActivityType.Boule) return <BracketBoard activity={activity} canManage={canManage} refreshKey={scoreVersion} />;
   if (type === ActivityType.WordGame) return <WordGamePlay activity={activity} participant={session} />;
   return (

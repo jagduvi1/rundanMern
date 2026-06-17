@@ -21,6 +21,9 @@ export const revealImpostureRound = (activityId) =>
   apiPost(`/activities/${activityId}/imposture/round/reveal`, {}, { activityId });
 
 // Player: role, vote, and a caught impostor's word-guess.
+// Round-by-round recap of revealed rounds (for the finished-game results page).
+export const getImpostureRecap = (activityId) =>
+  apiGet(`/activities/${activityId}/imposture/recap`, { activityId });
 export const getImpostureMe = (activityId) =>
   apiGet(`/activities/${activityId}/imposture/me`, { activityId });
 export const castImpostureVote = (activityId, votedParticipantId) =>

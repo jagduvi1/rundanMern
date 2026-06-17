@@ -315,9 +315,45 @@ router.post('/:id/imposture/round/reveal', activityManager, asyncHandler(async (
 
   round.phase = PHASE.REVEALED;
   round.scored = true;
+
+  // Snapshot this round for the end-of-game recap (names captured now).
+  const nameById = new Map(t.participants.map((p) => [idStr(p), p.displayName]));
+  const catchers = [];
+  for (const [voter, voted] of t.voterMap.entries()) {
+    if (!t.impostorSet.has(voter) && t.impostorSet.has(voted)) catchers.push(nameById.get(voter) || '—');
+  }
+  activity.impostureHistory.push({
+    order: round.order,
+    word: round.word,
+    category: round.category ?? null,
+    impostors: [...t.impostorSet].map((iid) => nameById.get(iid) || '—'),
+    caught: [...t.impostorSet].some((iid) => t.caughtByImpostor.get(iid)),
+    catchers,
+    guess: null,
+    guessCorrect: false,
+  });
+
   await activity.save();
   await pushScoreboard(activity._id);
   res.json(await hostRoundDto(activity));
+}));
+
+// GET /:id/imposture/recap — the round-by-round history (revealed rounds only, so
+// nothing secret). Public, like the scoreboard.
+router.get('/:id/imposture/recap', asyncHandler(async (req, res) => {
+  const activity = await Activity.findById(req.params.id).select('type impostureHistory').lean();
+  if (!activity || activity.type !== ActivityType.Imposture) throw new RuleViolation('Activity not found.', 404);
+  const rounds = (activity.impostureHistory || []).map((h) => ({
+    order: h.order,
+    word: h.word ?? null,
+    category: h.category ?? null,
+    impostors: h.impostors || [],
+    caught: !!h.caught,
+    catchers: h.catchers || [],
+    guess: h.guess ?? null,
+    guessCorrect: !!h.guessCorrect,
+  }));
+  res.json({ rounds });
 }));
 
 // ── Player: role, vote, word-guess ────────────────────────────────────────────
@@ -421,6 +457,9 @@ router.post('/:id/imposture/round/guess', asyncHandler(async (req, res) => {
   round.guess = guess.slice(0, 80);
   round.guessCorrect = correct;
   round.guessByParticipantId = participant._id;
+  // Reflect the guess in this round's recap snapshot.
+  const hist = (activity.impostureHistory || []).find((h) => h.order === round.order);
+  if (hist) { hist.guess = round.guess; hist.guessCorrect = correct; }
   if (correct) {
     await ScoreEntry.create({
       activityId: activity._id, participantId: participant._id, round: round.order, points: GUESS_BONUS, note: 'imposture-guess', recordedUtc: new Date(),

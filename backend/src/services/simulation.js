@@ -61,9 +61,12 @@ async function clearResults(activity) {
     activity.mapCities = [];
   }
 
-  // Clear the live Imposture round so a replay starts from round 1.
+  // Clear the live Imposture round + recap history so a replay starts from round 1.
   if (activity.impostureRound) {
     activity.impostureRound = null;
+  }
+  if ((activity.impostureHistory || []).length > 0) {
+    activity.impostureHistory = [];
   }
 
   // Clear any music-quiz "track started" timers so a replay begins fresh.
