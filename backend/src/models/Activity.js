@@ -73,7 +73,11 @@ const activitySchema = new mongoose.Schema({
   spotifyConnectionId: { type: mongoose.Schema.Types.ObjectId, default: null },
   hideQuestionsFromHost: { type: Boolean, default: false },
 
-  // Library reuse
+  // Library reuse. inLibrary = saved as a reusable template in its owner's library
+  // (a standalone activity, eventId null, owned by `owner`). isPublic = that library
+  // template is ALSO shared publicly with every logged-in user. isPublic is only
+  // meaningful alongside inLibrary; the public-library list is inLibrary && isPublic.
+  inLibrary: { type: Boolean, default: false },
   isPublic: { type: Boolean, default: false },
 
   // Standalone-activity ownership (the account that created it). Event activities

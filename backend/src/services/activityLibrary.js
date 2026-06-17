@@ -1,5 +1,6 @@
-// ActivityLibraryService — deep-copy a PUBLIC library activity into an event as a
-// fresh Draft. Port of Rundan.Server/Services/ActivityLibraryService.CopyToEventAsync.
+// ActivityLibraryService — deep-copy a reusable library activity, either INTO an
+// event as a fresh Draft (copyToEvent) or into a user's own library as a standalone
+// template (copyToLibrary). Port of Rundan.Server/Services/ActivityLibraryService.
 //
 // Copies everything that defines the activity's SETUP (config + questions/options +
 // courts + memory-card labels) and resets all live/identity state (status → Draft,
@@ -25,29 +26,16 @@ const CONFIG_FIELDS = [
   'latitude', 'longitude', 'radiusMeters', 'mapCityCount',
 ];
 
-/**
- * Deep-copy a public library activity into an event as a fresh Draft.
- * @param {string} sourceId  a PUBLIC activity's id
- * @param {string|ObjectId} eventId  the target event
- * @returns {Promise<{activity: object, questionCount: number}>} the created doc
- */
-async function copyToEvent(sourceId, eventId) {
-  const source = await Activity.findOne({ _id: sourceId, isPublic: true }).lean();
-  if (!source) throw new RuleViolation('Library activity not found.', 404);
-
-  const maxA = await Activity.findOne({ eventId }).sort({ order: -1 }).select('order').lean();
-  const order = (maxA ? maxA.order : 0) + 1;
-
+// Create a new activity from `source`'s config plus the `base` overrides (identity /
+// live-state fields), then deep-copy its questions (+ options). Standalone Mongo has
+// no transactions, so on a (rare) insertMany failure roll back the just-created
+// activity by hand rather than leaving a question-less orphan Draft.
+async function cloneActivity(source, base) {
   const copyFields = {};
   for (const f of CONFIG_FIELDS) copyFields[f] = source[f];
 
   const copy = await Activity.create({
     ...copyFields,
-    eventId,
-    order,
-    status: ActivityStatus.Draft,
-    isPublic: false, // a copy living inside an event isn't itself a library item
-    owner: null, // governed by the event's owner/admins, not a standalone owner
     spotifyConnectionId: null, // per-user — never carry another host's connection
     joinCode: await uniqueJoinCode([Activity, Event]), // unique across both collections
     // Authored config carries over; drawn/live lists reset.
@@ -56,12 +44,10 @@ async function copyToEvent(sourceId, eventId) {
     memoryCards: (source.memoryCards || []).slice().sort((a, b) => a.order - b.order)
       .map((c) => ({ order: c.order, text: c.text })),
     mapCities: [],
+    ...base, // eventId/order/status/inLibrary/isPublic/owner — caller decides
   });
 
-  // Deep-copy the questions (+ options) into the new activity. Standalone Mongo
-  // has no transactions, so on a (rare) insertMany failure, roll back the just-
-  // created activity by hand rather than leaving a question-less orphan Draft.
-  const questions = await Question.find({ activityId: sourceId }).sort({ order: 1 }).lean();
+  const questions = await Question.find({ activityId: source._id }).sort({ order: 1 }).lean();
   if (questions.length) {
     try {
       await Question.insertMany(questions.map((q) => ({
@@ -91,4 +77,53 @@ async function copyToEvent(sourceId, eventId) {
   return { activity: copy, questionCount: questions.length };
 }
 
-module.exports = { copyToEvent };
+/**
+ * Deep-copy a library activity into an event as a fresh Draft. The source must be a
+ * publicly shared template OR one the requester owns (their own library item).
+ * @param {string} sourceId  the library activity's id
+ * @param {string|ObjectId} eventId  the target event
+ * @param {string|ObjectId|null} requesterId  the acting account (to allow own items)
+ * @returns {Promise<{activity: object, questionCount: number}>} the created doc
+ */
+async function copyToEvent(sourceId, eventId, requesterId = null) {
+  const source = await Activity.findById(sourceId).lean();
+  const reqId = requesterId ? String(requesterId) : null;
+  const allowed = source && (source.isPublic
+    || (reqId && source.owner && String(source.owner) === reqId));
+  if (!allowed) throw new RuleViolation('Library activity not found.', 404);
+
+  const maxA = await Activity.findOne({ eventId }).sort({ order: -1 }).select('order').lean();
+  const order = (maxA ? maxA.order : 0) + 1;
+
+  return cloneActivity(source, {
+    eventId,
+    order,
+    status: ActivityStatus.Draft,
+    inLibrary: false,
+    isPublic: false, // a copy living inside an event isn't itself a library item
+    owner: null, // governed by the event's owner/admins, not a standalone owner
+  });
+}
+
+/**
+ * Deep-copy any activity into a NEW standalone library template owned by `ownerId`.
+ * Private (isPublic:false) until the owner publishes it from the library page.
+ * @param {string|ObjectId} sourceId  the activity to snapshot
+ * @param {string|ObjectId} ownerId  the account that will own the template
+ * @returns {Promise<{activity: object, questionCount: number}>} the created doc
+ */
+async function copyToLibrary(sourceId, ownerId) {
+  const source = await Activity.findById(sourceId).lean();
+  if (!source) throw new RuleViolation('Activity not found.', 404);
+
+  return cloneActivity(source, {
+    eventId: null,
+    order: 0,
+    status: ActivityStatus.Draft,
+    inLibrary: true,
+    isPublic: false,
+    owner: ownerId,
+  });
+}
+
+module.exports = { copyToEvent, copyToLibrary };

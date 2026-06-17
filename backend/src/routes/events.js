@@ -838,7 +838,7 @@ router.post(
     const activityLibrary = require('../services/activityLibrary');
     const ev = req.targetEvent;
     const { activity, questionCount } = await activityLibrary.copyToEvent(
-      req.params.sourceId, ev._id,
+      req.params.sourceId, ev._id, req.user?.id || null,
     );
     const plain = activity.toObject();
     plain.courts = (activity.courts || []).slice().sort((a, b) => a.order - b.order);

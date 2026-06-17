@@ -1055,8 +1055,10 @@ function HostControls({
     if (event.teamShuffle === TeamShuffle.FixedForEvent) {
       getTeams(id).then(setFixedTeams).catch(() => {});
     }
-    // Reusable public activities (the "add from library" picker).
-    listActivities().then((rows) => setLibrary((rows || []).filter((a) => a.isPublic))).catch(() => {});
+    // Reusable library activities (the "add from library" picker): publicly shared
+    // templates + the host's own library items. listActivities already drops items
+    // the caller can't see, so filtering on inLibrary yields exactly the reusable set.
+    listActivities().then((rows) => setLibrary((rows || []).filter((a) => a.inLibrary))).catch(() => {});
   }, [id, event.teamShuffle]);
 
   const addActivity = async () => {

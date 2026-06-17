@@ -10,7 +10,7 @@
 const express = require('express');
 
 const {
-  Activity, Event, EventMember, Participant, Question, ScoreEntry, Answer, SpotifyConnection,
+  Account, Activity, Event, EventMember, Participant, Question, ScoreEntry, Answer, SpotifyConnection,
 } = require('../models');
 const {
   ActivityType, ActivityStatus, Measurement, ScoringMode, QuestionKind, values,
@@ -20,6 +20,7 @@ const { RuleViolation, asyncHandler } = require('../middleware/error');
 const { optionalAuth } = require('../middleware/auth');
 const { canManageEvent, canManageActivity, activityManager } = require('../middleware/eventAuth');
 const { uniqueJoinCode } = require('../utils/joinCode');
+const { copyToLibrary } = require('../services/activityLibrary');
 const { deleteActivityCascade } = require('../services/cascade');
 const { buildScoreboard, pushScoreboard } = require('../services/scoreboard');
 const scoring = require('../services/scoring');
@@ -447,6 +448,65 @@ router.get('/', optionalAuth, asyncHandler(async (req, res) => {
     if (!canManage && !a.isPublic) continue; // drop what the caller can't see
     // eslint-disable-next-line no-await-in-loop
     dtos.push(await loadActivityDto(a, { canManage }));
+  }
+  res.json(dtos);
+}));
+
+// ── Library (reusable activity templates) ─────────────────────────────────────
+
+// POST /api/activities/:id/add-to-library — snapshot this activity into the caller's
+// own library as a standalone, reusable template (private until they publish it).
+// Auth: the caller must be able to manage the source activity.
+router.post('/:id/add-to-library', activityManager, asyncHandler(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Sign in to use the library.' });
+  const { activity } = await copyToLibrary(req.targetActivity._id, req.user.id);
+  res.status(201)
+    .location(`/api/activities/${idStr(activity)}`)
+    .json(await loadActivityDto(activity, { canManage: true }));
+}));
+
+// POST /api/activities/:id/library-visibility — share / unshare a library template
+// with every logged-in user. Only the owner (canManageActivity) may toggle it.
+router.post('/:id/library-visibility', activityManager, asyncHandler(async (req, res) => {
+  const activity = req.targetActivity;
+  if (!activity.inLibrary) throw new RuleViolation('Only library activities can be shared.', 409);
+  activity.isPublic = !!(req.body || {}).isPublic;
+  await activity.save();
+  res.json(await loadActivityDto(activity, { canManage: true }));
+}));
+
+// GET /api/activities/library/mine — the caller's own reusable library templates.
+router.get('/library/mine', optionalAuth, asyncHandler(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Sign in to view your library.' });
+  const items = await Activity.find({ owner: req.user.id, inLibrary: true })
+    .sort({ createdUtc: -1, _id: -1 });
+  const dtos = [];
+  for (const a of items) {
+    // eslint-disable-next-line no-await-in-loop
+    dtos.push(await loadActivityDto(a, { canManage: true }));
+  }
+  res.json(dtos);
+}));
+
+// GET /api/activities/library/public — every publicly shared library template, each
+// with its author's display name. Logged-in users only (the "share with others" list).
+router.get('/library/public', optionalAuth, asyncHandler(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Sign in to browse the shared library.' });
+  const items = await Activity.find({ inLibrary: true, isPublic: true })
+    .sort({ createdUtc: -1, _id: -1 });
+  const ownerIds = [...new Set(items.map((a) => a.owner).filter(Boolean).map(String))];
+  const owners = ownerIds.length
+    ? await Account.find({ _id: { $in: ownerIds } }).select('displayName username').lean()
+    : [];
+  const nameById = new Map(owners.map((o) => [String(o._id), o.displayName || o.username]));
+  const me = String(req.user.id);
+  const dtos = [];
+  for (const a of items) {
+    // eslint-disable-next-line no-await-in-loop
+    const dto = await loadActivityDto(a, { canManage: await canManageActivity(req, a) });
+    dto.ownerName = a.owner ? (nameById.get(String(a.owner)) || 'Okänd') : 'Rundan';
+    dto.isMine = !!(a.owner && String(a.owner) === me);
+    dtos.push(dto);
   }
   res.json(dtos);
 }));
