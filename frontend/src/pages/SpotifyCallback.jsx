@@ -10,7 +10,7 @@ import { readCallback, redirectUri } from '../utils/spotifyAuth';
 import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 export default function SpotifyCallback() {
-  useDocumentTitle('Ansluter Spotify · Gamedo');
+  useDocumentTitle('Ansluter Spotify · GameDo');
   const [status, setStatus] = useState('working'); // working | done | error
   const [name, setName] = useState(null);
   const [error, setError] = useState(null);

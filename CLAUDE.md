@@ -1,8 +1,8 @@
 # CLAUDE.md — working notes for this repo
 
-Gamedo (MERN) is a **port** of the .NET 10 / Blazor app *rundan* (https://github.com/jagduvi1/rundan)
+GameDo (MERN) is a **port** of the .NET 10 / Blazor app *rundan* (https://github.com/jagduvi1/rundan)
 onto the **Glosan** MERN stack (MongoDB + Express + React/Vite + Socket.IO). A private, mobile-first
-party-games platform with a live shared scoreboard and ~8 game types. The product is branded **Gamedo**
+party-games platform with a live shared scoreboard and ~8 game types. The product is branded **GameDo**
 (gamedo.app); internal wire/storage identifiers intentionally keep the legacy `rundan` token — see below.
 
 ## Stack & layout
@@ -18,7 +18,7 @@ party-games platform with a live shared scoreboard and ~8 game types. The produc
 - `frontend/.npmrc` sets `legacy-peer-deps=true` (react-helmet-async's peer range predates React 19).
 
 ## Conventions that matter (don't break these)
-- **Brand vs. legacy identifiers.** The product is branded **Gamedo** (gamedo.app) — all user-facing
+- **Brand vs. legacy identifiers.** The product is branded **GameDo** (gamedo.app) — all user-facing
   text, titles, and logo say so (`frontend/public/assets/gamedo-*.svg`). But on-the-wire and on-disk
   identifiers intentionally keep the legacy `rundan` token for backward compatibility: auth headers
   (`x-rundan-participant` / `x-rundan-member` / `x-rundan-access`), localStorage keys (`rundan.*`), the

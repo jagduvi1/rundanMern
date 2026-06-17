@@ -39,7 +39,7 @@ export function BootstrapProvider({ children }) {
   const value = {
     bootstrap,
     loading,
-    appName: bootstrap?.appName || 'Gamedo',
+    appName: bootstrap?.appName || 'GameDo',
     requiresAccessCode,
     hasWebPush: !!bootstrap?.hasWebPush,
     accessCode,

@@ -96,7 +96,7 @@ async function similarArtists(artist) {
 // Descriptive User-Agent (polite; harmless for Last.fm, required by MusicBrainz —
 // kept consistent across the music integrations).
 function userAgent() {
-  const app = env.appName || 'Gamedo';
+  const app = env.appName || 'GameDo';
   const url = env.frontendUrl || 'https://gamedo.app';
   return `${app}/1.0 (${url})`;
 }

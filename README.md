@@ -1,6 +1,6 @@
-# Gamedo (MERN)
+# GameDo (MERN)
 
-**Gamedo** is a private, mobile-first web app for running group party games together, with a
+**GameDo** is a private, mobile-first web app for running group party games together, with a
 **live shared scoreboard** that updates in real time as answers and scores come in. It's a
 **MERN-stack port** of [Rundan](https://github.com/jagduvi1/rundan) (the original .NET app).
 

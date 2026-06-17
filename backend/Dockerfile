@@ -1,4 +1,4 @@
-# Gamedo backend — Express + Mongoose + Socket.IO
+# GameDo backend — Express + Mongoose + Socket.IO
 FROM node:20-alpine
 
 WORKDIR /app
