@@ -9,12 +9,18 @@
 // the canManage check.
 //
 // Props:
-//   activity : ActivityDto — reads { id, spotifyConnectionId, speedScoring }.
-import { useEffect, useRef, useState } from 'react';
+//   activity    : ActivityDto — reads { id, spotifyConnectionId, speedScoring, musicChoices }.
+//   participant : the host's own player session (or null). When set AND the quiz is
+//                 tap-the-artist (musicChoices), the host is "part of the competition"
+//                 and answers the live track right here — the same options players get.
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { startTrack } from '../api/music';
-import { getAdminQuestions } from '../api/questions';
+import { getAdminQuestions, getQuestions } from '../api/questions';
+import { submitAnswer, getMyAnswers } from '../api/gameplay';
+import { ActivityStatus } from '../config/enums';
 import { apiPost } from '../api/client';
 import { useSpotifyPlayer } from '../utils/spotifyPlayer';
+import { OptionButton, OptionKey, optionColor, feedbackStyle } from './QuizPlay';
 import Spinner from './Spinner';
 
 // Best-effort "wrap up the quiz if that was the last track" — no dedicated API
@@ -24,8 +30,12 @@ const maybeFinishMusic = (activityId) =>
 
 const secondsSince = (start) => Math.floor((Date.now() - start) / 1000);
 
-export default function MusicHostPanel({ activity }) {
+export default function MusicHostPanel({ activity, participant }) {
   const canPlayInApp = activity?.spotifyConnectionId != null;
+  // The host competes too when they have a player session, it's tap-the-artist mode,
+  // and the quiz is actually live (the options + answering only exist while live).
+  const competing = !!participant && !!activity?.musicChoices
+    && activity?.status === ActivityStatus.Live;
   // The hook no-ops when connectionId is null, so it's safe to call unconditionally.
   const {
     ready, error: playerError, play, pause, resume, activate,
@@ -49,6 +59,12 @@ export default function MusicHostPanel({ activity }) {
   const [playBusy, setPlayBusy] = useState(false);
   const [playError, setPlayError] = useState(null);
 
+  // Host-as-player answering (Kahoot mode): the same tap-the-artist options players get.
+  const [optionsById, setOptionsById] = useState(() => new Map()); // qid → [{ id, text }]
+  const [myAnswers, setMyAnswers] = useState(() => new Map());     // qid → my answer dto
+  const [answerBusyId, setAnswerBusyId] = useState(null);
+  const [answerError, setAnswerError] = useState(null);
+
   const aliveRef = useRef(true);
   useEffect(() => {
     aliveRef.current = true;
@@ -71,6 +87,33 @@ export default function MusicHostPanel({ activity }) {
     })();
     return () => { alive = false; };
   }, [activity.id]);
+
+  // When the host is competing, load the same tap-the-artist options players get
+  // (player questions endpoint) plus the host's own answers so far. Best-effort:
+  // the options only exist once the quiz is live, so this is re-run after a start.
+  const loadChoices = useCallback(async () => {
+    if (!competing) return;
+    const [qs, mine] = await Promise.all([
+      getQuestions(activity.id).catch(() => null),
+      getMyAnswers(activity.id).catch(() => null),
+    ]);
+    if (!aliveRef.current) return;
+    if (qs) {
+      const m = new Map();
+      for (const q of qs) m.set(String(q.id), q.options || []);
+      setOptionsById(m);
+    }
+    // Merge (never drop) so a refetch can't transiently wipe an optimistic answer.
+    if (mine) {
+      setMyAnswers((prev) => {
+        const m = new Map(prev);
+        for (const a of mine) m.set(String(a.questionId), a);
+        return m;
+      });
+    }
+  }, [activity.id, competing]);
+
+  useEffect(() => { loadChoices(); }, [loadChoices]);
 
   // Countdown ticker — computes remaining from timestamps so it's resilient to tab
   // throttling. When it reaches 0, stop and call maybe-finish once.
@@ -112,6 +155,7 @@ export default function MusicHostPanel({ activity }) {
         window: res?.windowSeconds || 30,
       });
       ensureTicking();
+      if (competing) loadChoices(); // options become available once a track is live
       if (autoPlay && t.spotifyUrl && t.spotifyUrl.trim()) {
         playTrack(t);
       }
@@ -160,6 +204,70 @@ export default function MusicHostPanel({ activity }) {
     } finally {
       setPlayBusy(false);
     }
+  }
+
+  // The host taps an artist option for the live track (same call players make).
+  async function submitChoice(t, optionText) {
+    // Ignore taps while a submit is in flight or this track is already answered
+    // (the backend dedups anyway, but this keeps the optimistic state consistent).
+    if (!participant || answerBusyId || myAnswers.has(String(t.id))) return;
+    setAnswerBusyId(t.id);
+    setAnswerError(null);
+    try {
+      const res = await submitAnswer(activity.id, {
+        questionId: t.id, freeText: '', artistText: optionText, year: null,
+      });
+      if (!aliveRef.current) return;
+      setMyAnswers((prev) => new Map(prev).set(String(t.id), {
+        questionId: t.id,
+        artistText: optionText,
+        isCorrect: res?.isCorrect,
+        awardedPoints: res?.awardedPoints,
+      }));
+    } catch (e) {
+      setAnswerError(e?.message || 'Kunde inte skicka svaret.');
+    } finally {
+      setAnswerBusyId(null);
+    }
+  }
+
+  // The host's own answer block for a track (only when competing in Kahoot mode):
+  // tap-the-artist options while the track is live, then the host's pick + result.
+  function hostAnswer(t, isLive) {
+    const mine = myAnswers.get(String(t.id));
+    if (mine) {
+      // Correctness from the awarded score (authoritative, and works even when the
+      // host hid the answers from themselves) — mirrors the player view's reveal.
+      const gotIt = (mine.awardedPoints || 0) > 0;
+      return (
+        <div style={feedbackStyle(gotIt)}>
+          Du svarade: <b>{mine.artistText && mine.artistText.trim() ? mine.artistText : '—'}</b>
+          {` ${gotIt ? '✓' : '✗'}`}
+          {mine.awardedPoints != null ? <> · <b>+{mine.awardedPoints}</b></> : null}
+        </div>
+      );
+    }
+    if (!isLive) return null;
+    const opts = optionsById.get(String(t.id)) || [];
+    if (opts.length === 0) return <span className="muted small">Laddar svarsalternativ…</span>;
+    return (
+      <div className="stack" style={{ gap: '.3rem' }}>
+        <span className="muted small">Ditt svar (du tävlar också):</span>
+        {opts.map((opt, oi) => (
+          <OptionButton
+            key={opt.id}
+            indexKey={OptionKey(oi, opts.length)}
+            accent={optionColor(oi, opts.length)}
+            text={opt.text}
+            mark=""
+            state=""
+            disabled={answerBusyId != null}
+            onClick={() => submitChoice(t, opt.text)}
+          />
+        ))}
+        {answerError ? <div className="error-text">{answerError}</div> : null}
+      </div>
+    );
   }
 
   if (loading) {
@@ -231,6 +339,7 @@ export default function MusicHostPanel({ activity }) {
                 )}
                 {' · '}<b>{t.points} p</b>
               </div>
+              {competing ? hostAnswer(t, isLive) : null}
             </li>
           );
         })}
