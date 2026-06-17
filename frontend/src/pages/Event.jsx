@@ -61,6 +61,7 @@ const ARRIVAL_RADIUS = 40;
 const HOST_TYPES = [
   ActivityType.Quiz, ActivityType.Tipspromenad, ActivityType.Boule, ActivityType.ScoreGame,
   ActivityType.WordGame, ActivityType.MapPin, ActivityType.MusicQuiz, ActivityType.Memory,
+  ActivityType.Imposture,
 ];
 
 const actionLabel = (status) => ({

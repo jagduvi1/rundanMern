@@ -15,6 +15,15 @@ import Spinner from './Spinner';
 const PHASE = { CLUES: 0, VOTING: 1, REVEALED: 2 };
 const POLL_MS = 2500;
 
+// The impostor's category hint — a clear, labelled callout (shown only when the
+// host enabled "reveal category to impostor" and the word has a category).
+const hintPill = {
+  alignSelf: 'flex-start',
+  background: 'var(--warn-soft, #fef3c7)',
+  color: 'var(--warn-ink, #92400e)',
+  fontWeight: 600,
+};
+
 export default function ImposturePlay({ activity }) {
   const [me, setMe] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -92,8 +101,10 @@ export default function ImposturePlay({ activity }) {
           <div style={{ fontSize: '1.2rem' }}>🕵️ <b>Du är impostorn!</b></div>
           <p className="muted small" style={{ margin: 0 }}>
             Du vet inte ordet. Lyssna på de andras ledord och bluffa dig igenom — säg något som passar in utan att avslöja att du inte vet.
-            {me.category ? <> Kategori: <b>{me.category}</b>.</> : null}
           </p>
+          {me.category ? (
+            <div className="pill" style={hintPill}>💡 Ledtråd — kategori: <b>{me.category}</b></div>
+          ) : null}
         </>
       ) : (
         <>
