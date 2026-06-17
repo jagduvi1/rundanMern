@@ -65,3 +65,14 @@ desktop.ini
 
 # ── Port analysis scratch (planning docs; not shipped) ────────────────────────
 _port/
+
+# ── design-sync (claude.ai/design import) ─────────────────────────────────────
+# Staged converter scripts + their deps, regenerated build output, and machine
+# state. The durable inputs (.design-sync/config.json, NOTES.md, conventions.md,
+# previews/, overrides/) ARE committed; everything below is regenerated.
+.ds-sync/
+ds-bundle/
+.ds-entry.mjs
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
