@@ -75,6 +75,7 @@ const activitySchema = new mongoose.Schema({
 
   // Library reuse
   isPublic: { type: Boolean, default: false },
+  copiedFromId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
 
   // Standalone-activity ownership (the account that created it). Event activities
   // are governed by their event's owner/admins instead. Null for legacy/seeded

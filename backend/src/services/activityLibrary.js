@@ -46,8 +46,9 @@ async function copyToEvent(sourceId, eventId) {
     eventId,
     order,
     status: ActivityStatus.Draft,
-    isPublic: false, // a copy living inside an event isn't itself a library item
-    owner: null, // governed by the event's owner/admins, not a standalone owner
+    isPublic: false,
+    copiedFromId: source._id,
+    owner: null,
     spotifyConnectionId: null, // per-user — never carry another host's connection
     joinCode: await uniqueJoinCode([Activity, Event]), // unique across both collections
     // Authored config carries over; drawn/live lists reset.

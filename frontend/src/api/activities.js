@@ -13,3 +13,4 @@ export const setCourts = (id, label, names) =>
   apiPut(`/activities/${id}/courts`, { label, names }, { activityId: id });
 export const getScoreboard = (id) => apiGet(`/activities/${id}/scoreboard`, { activityId: id });
 export const getSummary = (id) => apiGet(`/activities/${id}/summary`, { activityId: id });
+export const getUsedInEvents = (id) => apiGet(`/activities/${id}/used-in`);

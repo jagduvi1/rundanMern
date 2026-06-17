@@ -451,6 +451,17 @@ router.get('/', optionalAuth, asyncHandler(async (req, res) => {
   res.json(dtos);
 }));
 
+// GET /api/activities/:id/used-in — events that contain copies of this library activity.
+router.get('/:id/used-in', optionalAuth, asyncHandler(async (req, res) => {
+  const copies = await Activity.find({ copiedFromId: req.params.id, eventId: { $ne: null } })
+    .select('eventId')
+    .lean();
+  const eventIds = [...new Set(copies.map((c) => String(c.eventId)))];
+  if (eventIds.length === 0) return res.json([]);
+  const events = await Event.find({ _id: { $in: eventIds } }).select('name').lean();
+  res.json(events.map((e) => ({ id: String(e._id), name: e.name })));
+}));
+
 // ── Player lookup ─────────────────────────────────────────────────────────────
 
 // GET /api/activities/:id — ActivityDto with per-request canManage.

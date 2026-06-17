@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { listActivities } from '../api/activities';
+import { Link, useNavigate } from 'react-router-dom';
+import { listActivities, getUsedInEvents } from '../api/activities';
 import { useDocumentTitle } from '../utils/useDocumentTitle';
 import { useToast } from '../components/Toast';
 import AdminNav from '../components/AdminNav';
@@ -14,6 +14,7 @@ export default function Library() {
   const { toast, show } = useToast();
 
   const [activities, setActivities] = useState([]);
+  const [usedIn, setUsedIn] = useState({});
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
 
@@ -21,7 +22,14 @@ export default function Library() {
     (async () => {
       try {
         const list = await listActivities();
-        setActivities((list || []).filter((a) => a.isPublic));
+        const pub = (list || []).filter((a) => a.isPublic);
+        setActivities(pub);
+        const entries = await Promise.all(
+          pub.map((a) => getUsedInEvents(a.id).then((evs) => [a.id, evs]).catch(() => [a.id, []])),
+        );
+        const map = {};
+        for (const [id, evs] of entries) map[id] = evs;
+        setUsedIn(map);
       } catch (e) {
         show(e?.message || 'Kunde inte ladda biblioteket.');
       } finally {
@@ -75,42 +83,56 @@ export default function Library() {
         </div>
       ) : (
         <div style={gridStyle}>
-          {filtered.map((a) => (
-            <div
-              key={a.id}
-              className="card stack"
-              style={cardStyle}
-              onClick={() => navigate(`/manage/${a.id}`)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/manage/${a.id}`); }}
-            >
-              <div className="spread" style={{ alignItems: 'flex-start' }}>
-                <h3 style={{ margin: 0, fontSize: '1rem' }}>{a.title}</h3>
-                <StatusBadge status={a.status} />
+          {filtered.map((a) => {
+            const events = usedIn[a.id] || [];
+            return (
+              <div
+                key={a.id}
+                className="card stack"
+                style={cardStyle}
+                onClick={() => navigate(`/manage/${a.id}`)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/manage/${a.id}`); }}
+              >
+                <div className="spread" style={{ alignItems: 'flex-start' }}>
+                  <h3 style={{ margin: 0, fontSize: '1rem' }}>{a.title}</h3>
+                  <StatusBadge status={a.status} />
+                </div>
+                <span className="muted small">{typeLabel(a.type)}</span>
+                {a.questionCount > 0 ? (
+                  <span className="muted small">{a.questionCount} frågor</span>
+                ) : null}
+                {events.length > 0 ? (
+                  <div className="muted small" onClick={(e) => e.stopPropagation()}>
+                    Används i:{' '}
+                    {events.map((ev, i) => (
+                      <span key={ev.id}>
+                        {i > 0 ? ', ' : ''}
+                        <Link to={`/e/${ev.id}`}>{ev.name}</Link>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="row" style={{ marginTop: 'auto' }}>
+                  <button
+                    type="button"
+                    className="btn sm"
+                    onClick={(e) => { e.stopPropagation(); navigate(`/manage/${a.id}`); }}
+                  >
+                    Hantera
+                  </button>
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    onClick={(e) => { e.stopPropagation(); navigate(`/a/${a.id}`); }}
+                  >
+                    Öppna
+                  </button>
+                </div>
               </div>
-              <span className="muted small">{typeLabel(a.type)}</span>
-              {a.questionCount > 0 ? (
-                <span className="muted small">{a.questionCount} frågor</span>
-              ) : null}
-              <div className="row" style={{ marginTop: 'auto' }}>
-                <button
-                  type="button"
-                  className="btn sm"
-                  onClick={(e) => { e.stopPropagation(); navigate(`/manage/${a.id}`); }}
-                >
-                  Hantera
-                </button>
-                <button
-                  type="button"
-                  className="btn sm ghost"
-                  onClick={(e) => { e.stopPropagation(); navigate(`/a/${a.id}`); }}
-                >
-                  Öppna
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </>

@@ -85,6 +85,7 @@ function activityDto(a, extra = {}) {
     spotifyConnectionId: a.spotifyConnectionId ? idStr(a.spotifyConnectionId) : null,
     hideQuestionsFromHost: a.hideQuestionsFromHost,
     isPublic: a.isPublic,
+    copiedFromId: a.copiedFromId ? idStr(a.copiedFromId) : null,
     courtLabel: a.courtLabel,
     courts: (a.courts || []).map(courtDto),
     participantCount: extra.participantCount ?? 0,
