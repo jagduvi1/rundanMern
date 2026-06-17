@@ -1,7 +1,7 @@
-// One-shot Resend test send. Usage:
+// One-shot Mailgun test send. Usage:
 //   node scripts/test-email.js you@example.com
-// Reads RESEND_API_KEY + EMAIL_FROM from backend/.env. Until your domain is
-// verified in Resend you can only send to your own Resend account email.
+// Reads MAILGUN_API_KEY + MAILGUN_DOMAIN + EMAIL_FROM from backend/.env. On a
+// Mailgun sandbox domain you can only send to pre-authorised recipients.
 require('dotenv').config();
 
 const email = require('../src/services/email');
@@ -13,7 +13,7 @@ async function main() {
     process.exit(1);
   }
   if (!email.isEnabled()) {
-    console.error('RESEND_API_KEY is not set in backend/.env — aborting.');
+    console.error('MAILGUN_API_KEY / MAILGUN_DOMAIN not set in backend/.env — aborting.');
     process.exit(1);
   }
 
@@ -21,14 +21,14 @@ async function main() {
   try {
     const res = await email.send({
       to,
-      subject: 'Rundan — Resend test',
+      subject: 'Rundan — Mailgun test',
       html: email.wrapTemplate({
         title: 'It works! 🎉',
-        intro: 'This is a test email from Rundan via Resend. If you can read this, transactional email is wired up correctly.',
+        intro: 'This is a test email from Rundan via Mailgun. If you can read this, transactional email is wired up correctly.',
       }),
-      text: 'It works! This is a test email from Rundan via Resend.',
+      text: 'It works! This is a test email from Rundan via Mailgun.',
     });
-    console.log('✅ Accepted by Resend. Message id:', res?.id || '(no id returned)');
+    console.log('✅ Accepted by Mailgun. Message id:', res?.id || '(no id returned)');
   } catch (err) {
     console.error('❌ Send failed:', err?.message || err);
     process.exit(1);
