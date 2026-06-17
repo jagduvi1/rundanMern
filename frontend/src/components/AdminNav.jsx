@@ -22,6 +22,7 @@ export default function AdminNav({ active = '' }) {
       <div className="row wrap">
         <Link className={`btn sm ${active === 'events' ? '' : 'ghost'}`} to="/admin">Evenemang</Link>
         <Link className={`btn sm ${active === 'people' ? '' : 'ghost'}`} to="/admin/users">Personer</Link>
+        <Link className={`btn sm ${active === 'library' ? '' : 'ghost'}`} to="/library">Bibliotek</Link>
         {isAdmin ? (
           <Link className={`btn sm ${active === 'accounts' ? '' : 'ghost'}`} to="/admin/accounts">Konton</Link>
         ) : null}

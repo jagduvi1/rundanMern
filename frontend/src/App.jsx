@@ -25,6 +25,7 @@ const Activity = lazy(() => import('./pages/Activity'));
 const Manage = lazy(() => import('./pages/Manage'));
 const CreateEvent = lazy(() => import('./pages/CreateEvent'));
 const Admin = lazy(() => import('./pages/Admin'));
+const Library = lazy(() => import('./pages/Library'));
 const Users = lazy(() => import('./pages/Users'));
 const Accounts = lazy(() => import('./pages/Accounts'));
 const Diploma = lazy(() => import('./pages/Diploma'));
@@ -106,6 +107,14 @@ function AppRoutes() {
             element={(
               <ProtectedRoute>
                 <Admin />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/library"
+            element={(
+              <ProtectedRoute>
+                <Library />
               </ProtectedRoute>
             )}
           />
