@@ -4,8 +4,9 @@
 // links. Tabs highlight the active section.
 //
 // Props:
-//   active : string — "events", "people", "library", or "accounts" (highlights
-//            that tab). Optional.
+//   active : string — "events", "people", "library", "accounts", or "maintenance"
+//            (highlights that tab). Optional. The "accounts"/"maintenance" tabs are
+//            super-admin only.
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -25,7 +26,10 @@ export default function AdminNav({ active = '' }) {
         <Link className={`btn sm ${active === 'people' ? '' : 'ghost'}`} to="/admin/users">Personer</Link>
         <Link className={`btn sm ${active === 'library' ? '' : 'ghost'}`} to="/library">Bibliotek</Link>
         {isAdmin ? (
-          <Link className={`btn sm ${active === 'accounts' ? '' : 'ghost'}`} to="/admin/accounts">Konton</Link>
+          <>
+            <Link className={`btn sm ${active === 'accounts' ? '' : 'ghost'}`} to="/admin/accounts">Konton</Link>
+            <Link className={`btn sm ${active === 'maintenance' ? '' : 'ghost'}`} to="/admin/maintenance">Underhåll</Link>
+          </>
         ) : null}
         <Link className="btn sm ghost" to="/events">Spelvyn</Link>
         <span className="grow" />
