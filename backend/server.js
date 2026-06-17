@@ -69,10 +69,11 @@ connectDB().then(async () => {
   // Idempotent data migrations (scope the roster per-account, etc.).
   try {
     // eslint-disable-next-line global-require
-    const { migrateUserOwnership } = require('./src/services/migrations');
+    const { migrateUserOwnership, migrateEventMemberAccountId } = require('./src/services/migrations');
     await migrateUserOwnership();
+    await migrateEventMemberAccountId();
   } catch (e) {
-    console.error('User-ownership migration failed:', e.message);
+    console.error('Data migration failed:', e.message);
   }
 
   const server = http.createServer(app);

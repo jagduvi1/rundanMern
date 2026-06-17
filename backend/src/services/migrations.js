@@ -94,4 +94,57 @@ async function migrateUserOwnership() {
   }
 }
 
-module.exports = { migrateUserOwnership };
+// Backfill EventMember.accountId from the legacy global Account.userId links, then
+// add the per-event partial-unique index. Idempotent: only fills rows still null.
+// No collision is possible — Account.userId is 1:1 (at most one account per roster
+// User) and {eventId,userId} is unique (a User is in an event at most once), so the
+// backfill writes at most one accountId per event. Build the index AFTER the
+// backfill so a half-filled state can't trip 11000 mid-migration.
+async function migrateEventMemberAccountId() {
+  const coll = EventMember.collection;
+
+  const linked = await Account.find({ userId: { $type: 'objectId' } })
+    .select('_id userId').lean();
+
+  let filled = 0;
+  let skipped = 0;
+  for (const a of linked) {
+    // eslint-disable-next-line no-await-in-loop
+    const members = await EventMember.find({
+      userId: a.userId, accountId: { $in: [null, undefined] },
+    }).select('_id eventId').lean();
+    for (const m of members) {
+      // Defensive: never create a second membership for this account in an event.
+      // eslint-disable-next-line no-await-in-loop
+      const clash = await EventMember.exists({ eventId: m.eventId, accountId: a._id });
+      if (clash) { skipped += 1; continue; }
+      // eslint-disable-next-line no-await-in-loop
+      const r = await EventMember.updateOne(
+        { _id: m._id, accountId: { $in: [null, undefined] } },
+        { $set: { accountId: a._id } },
+      );
+      if (r.modifiedCount) filled += 1;
+    }
+  }
+  console.log(
+    `[migration] eventMember.accountId: filled ${filled}`
+    + (skipped ? `, skipped ${skipped} (already attached)` : ''),
+  );
+
+  // Per-event partial-unique index (background build for the live collection).
+  try {
+    await coll.createIndex(
+      { eventId: 1, accountId: 1 },
+      {
+        name: 'eventId_accountId_unique',
+        unique: true,
+        background: true,
+        partialFilterExpression: { accountId: { $type: 'objectId' } },
+      },
+    );
+  } catch (e) {
+    console.error('[migration] could not create eventId+accountId index:', e.message);
+  }
+}
+
+module.exports = { migrateUserOwnership, migrateEventMemberAccountId };

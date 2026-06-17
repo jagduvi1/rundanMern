@@ -42,11 +42,22 @@ router.put('/display-name', requireAuth, asyncHandler(async (req, res) => {
 // GET /api/me/stats — totals across every event this account's player took part in.
 router.get('/stats', requireAuth, asyncHandler(async (req, res) => {
   const account = await Account.findById(req.user.id).select('userId').lean();
-  if (!account || !account.userId) {
+  // Memberships via the per-event account link OR the legacy global roster link.
+  // A user can now have per-event identities with no global Account.userId at all.
+  const orMatch = [{ accountId: req.user.id }];
+  if (account?.userId) orMatch.push({ userId: account.userId });
+  const all = await EventMember.find({ $or: orMatch }).select('eventId userId').lean();
+  // Dedupe by event — a row can match both accountId and userId after the backfill.
+  const seen = new Set();
+  const memberships = all.filter((m) => {
+    const k = String(m.eventId);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  if (!memberships.length) {
     return res.json({ linked: false, totalPoints: 0, eventsPlayed: 0, wins: 0, events: [] });
   }
-  const userId = account.userId;
-  const memberships = await EventMember.find({ userId }).select('eventId').lean();
 
   let totalPoints = 0;
   let eventsPlayed = 0;
@@ -57,7 +68,9 @@ router.get('/stats', requireAuth, asyncHandler(async (req, res) => {
     // eslint-disable-next-line no-await-in-loop
     const standings = await buildStandings(m.eventId);
     if (!standings) continue;
-    const mine = (standings.entries || []).find((e) => String(e.userId) === String(userId));
+    // Standings attribute by roster User, not Account — match the membership's OWN
+    // userId (which can differ per event under per-event identity).
+    const mine = (standings.entries || []).find((e) => String(e.userId) === String(m.userId));
     if (!mine || (mine.activitiesPlayed === 0 && mine.totalPoints === 0)) continue;
     eventsPlayed += 1;
     totalPoints += mine.totalPoints;

@@ -132,6 +132,27 @@ async function deleteUserCascade(userId) {
   await User.deleteOne({ _id: userId });
 }
 
+// Deleting an Account (login). Detach its per-event identities and invite refs, and
+// pull its co-admin grants. Does NOT delete the roster Users it owns (those are
+// people, kept) nor its Events — a null Event.owner would be manageable only by a
+// super-admin (see canManageEvent), so we REFUSE deletion while the account still
+// owns any event; a real delete route must force handover first.
+// NOTE: there is no account-deletion route yet — this is written ready. When one is
+// built, also audit SpotifyConnection.ownerId (not imported here) which would dangle.
+async function deleteAccountCascade(accountId) {
+  if (await Event.exists({ owner: accountId })) {
+    throw new Error('Account still owns events — transfer or delete them first.');
+  }
+  await EventMember.updateMany({ accountId }, { $set: { accountId: null } });
+  await Invite.updateMany({ invitedBy: accountId }, { $set: { invitedBy: null } });
+  await Invite.updateMany({ acceptedBy: accountId }, { $set: { acceptedBy: null } });
+  await Event.updateMany({ admins: accountId }, { $pull: { admins: accountId } });
+  // Roster people this account owned become unowned (the per-owner unique index
+  // exempts null owners); reassignment is a future product decision.
+  await User.updateMany({ owner: accountId }, { $set: { owner: null } });
+  await Account.deleteOne({ _id: accountId });
+}
+
 module.exports = {
   deleteQuestionCascade,
   deleteParticipantCascade,
@@ -139,4 +160,5 @@ module.exports = {
   deleteActivityCascade,
   deleteEventCascade,
   deleteUserCascade,
+  deleteAccountCascade,
 };
