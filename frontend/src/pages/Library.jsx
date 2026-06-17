@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  getMyLibrary, getPublicLibrary, setLibraryVisibility, deleteActivity,
+  getMyLibrary, getPublicLibrary, setLibraryVisibility, deleteActivity, getActivityUsedIn,
 } from '../api/activities';
 import { listEvents, addActivityFromLibrary } from '../api/events';
 import { typeLabel } from '../utils/format';
@@ -21,6 +21,7 @@ export default function Library() {
   const [mine, setMine] = useState([]);
   const [pub, setPub] = useState([]);
   const [events, setEvents] = useState([]);
+  const [usedIn, setUsedIn] = useState({}); // templateId -> [{ id, name }] (events using copies)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [busyId, setBusyId] = useState(null); // id currently mutating (toggle/delete/reuse)
@@ -40,6 +41,11 @@ export default function Library() {
       setMine(m || []);
       setPub(p || []);
       setEvents(ev || []);
+      // Which events use copies of each of my templates (best-effort, per template).
+      const pairs = await Promise.all((m || []).map(async (t) => {
+        try { return [t.id, await getActivityUsedIn(t.id)]; } catch { return [t.id, []]; }
+      }));
+      setUsedIn(Object.fromEntries(pairs));
     } catch (e) {
       setError(e?.message || 'Kunde inte ladda biblioteket.');
     } finally {
@@ -131,6 +137,17 @@ export default function Library() {
         {a.isPublic ? <span style={badgeStyle}>Publik</span> : <span className="muted small">Privat</span>}
       </div>
       {a.description ? <div className="muted small">{stripTags(a.description)}</div> : null}
+      {(usedIn[a.id] || []).length > 0 ? (
+        <div className="muted small">
+          Används i:{' '}
+          {usedIn[a.id].map((e, i) => (
+            <span key={e.id}>
+              {i > 0 ? ', ' : ''}
+              <Link to={`/e/${e.id}`}>{e.name}</Link>
+            </span>
+          ))}
+        </div>
+      ) : null}
       <div className="row wrap" style={{ gap: 6 }}>
         <button type="button" className="btn sm" disabled={busyId === a.id} onClick={() => togglePublic(a)}>
           {a.isPublic ? 'Gör privat' : 'Gör publik'}
