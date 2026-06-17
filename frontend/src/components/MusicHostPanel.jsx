@@ -2,11 +2,10 @@
 // The React port of rundan's MusicHostPanel.razor. Lists the tracks; each "Start"
 // reveals a track to players (POST .../music/start/:qid → emits MusicTrackStarted +
 // starts a countdown) and, if speedScoring is on, begins a fastest-to-answer round.
-// Starting a track does NOT play it — playback is a separate "▶ Spela" action, so
-// the host can start the timer first and then start the song (matching rundan).
-// When a Spotify connection exists "▶ Spela" plays the full track in-app via the Web
-// Playback SDK (useSpotifyPlayer, Premium required); otherwise the "Spotify ↗" link
-// opens the track. Host-only — mounted by Activity.jsx behind the canManage check.
+// Starting a track also plays it via Spotify if a URL is set. When a Spotify
+// connection exists it plays the full track in-app via the Web Playback SDK
+// (useSpotifyPlayer, Premium required); otherwise the "Spotify ↗" link opens the
+// track. Host-only — mounted by Activity.jsx behind the canManage check.
 //
 // Props:
 //   activity : ActivityDto — reads { id, spotifyConnectionId, speedScoring }.
@@ -28,7 +27,7 @@ export default function MusicHostPanel({ activity }) {
   const canPlayInApp = activity?.spotifyConnectionId != null;
   // The hook no-ops when connectionId is null, so it's safe to call unconditionally.
   const {
-    ready, deviceId, error: playerError, play, pause, resume, activate, debug,
+    ready, error: playerError, play, pause, resume, activate,
   } = useSpotifyPlayer(activity?.spotifyConnectionId || null);
 
   const [tracks, setTracks] = useState([]);
@@ -99,12 +98,7 @@ export default function MusicHostPanel({ activity }) {
     if (tickerRef.current) clearInterval(tickerRef.current);
   }, []);
 
-  async function start(t) {
-    // "Starta" only reveals the track to players and starts the countdown — it does
-    // NOT play the song. The host plays it separately with "▶ Spela" (same flow as
-    // the original rundan: start the timer first, then start the song). We still
-    // pre-warm audio within this click gesture so the later "▶ Spela" click is
-    // already unlocked under the browser's autoplay policy.
+  async function startRound(t, { autoPlay = false } = {}) {
     if (canPlayInApp) activate();
     setBusy(true);
     setError(null);
@@ -117,6 +111,9 @@ export default function MusicHostPanel({ activity }) {
         window: res?.windowSeconds || 30,
       });
       ensureTicking();
+      if (autoPlay && t.spotifyUrl && t.spotifyUrl.trim()) {
+        playTrack(t);
+      }
     } catch (e) {
       setError(e?.message || 'Kunde inte starta spåret.');
     } finally {
@@ -180,7 +177,7 @@ export default function MusicHostPanel({ activity }) {
         {canPlayInApp
           ? 'Spela hela spår här med din Spotify Premium-anslutning, eller öppna dem i Spotify. '
           : 'Spela varje spår högt. '}
-        Tryck <b>Starta</b> för att avslöja ett spår för spelarna
+        Tryck <b>Starta & spela</b> för att avslöja ett spår för spelarna och spela upp det
         {activity.speedScoring
           ? ` och starta en snabbast-svar-runda — ett rätt svar ger mer ju snabbare det kommer in (bonusen avtar över ${windowSec} s).`
           : '.'}
@@ -205,13 +202,13 @@ export default function MusicHostPanel({ activity }) {
               <div className="row wrap">
                 <b className="grow">Spår {i + 1}</b>
                 {isLive ? <span className="pill live">▶ LIVE · {liveRemaining} s</span> : null}
-                <button type="button" className={`btn sm ${isLive ? 'ghost' : 'success'}`} onClick={() => start(t)} disabled={busy}>
+                <button type="button" className="btn sm ghost" onClick={() => startRound(t)} disabled={busy}>
                   {isLive ? 'Starta om' : 'Starta'}
                 </button>
                 {t.spotifyUrl && t.spotifyUrl.trim() ? (
                   <>
-                    <button type="button" className="btn sm" onClick={() => playTrack(t)} disabled={playBusy} title={canPlayInApp ? 'Spela hela spåret i appen (Premium)' : 'Öppna i Spotify'}>▶ Spela</button>
-                    <a className="btn sm ghost" href={t.spotifyUrl} target="_blank" rel="noopener noreferrer" title="Öppna spåret i Spotify">Spotify ↗</a>
+                    <button type="button" className="btn sm" onClick={() => playTrack(t)} disabled={playBusy}>▶ Spela</button>
+                    <button type="button" className="btn sm success" onClick={() => startRound(t, { autoPlay: true })} disabled={busy}>▶ Starta & spela</button>
                   </>
                 ) : null}
               </div>
@@ -233,25 +230,6 @@ export default function MusicHostPanel({ activity }) {
         })}
       </ul>
 
-      {/* Verbose Spotify diagnostics — temporary, while we get playback solid. */}
-      <details style={{ marginTop: '.4rem' }}>
-        <summary className="muted small" style={{ cursor: 'pointer' }}>🔧 Spotify-debug</summary>
-        <div className="stack" style={{ gap: 4, marginTop: '.4rem', fontSize: '.78rem' }}>
-          <div className="muted">canPlayInApp: <b>{String(canPlayInApp)}</b> · connectionId: <b>{String(activity?.spotifyConnectionId ?? 'null')}</b></div>
-          <div className="muted">SDK laddad: <b>{String(debug.sdkLoaded)}</b> · spelare skapad: <b>{String(debug.playerCreated)}</b> · connect(): <b>{String(debug.connectResult)}</b></div>
-          <div className="muted">redo (ready): <b>{String(ready)}</b> · device_id: <b>{deviceId || '—'}</b></div>
-          <div className="muted">token: <b>{debug.token ? (debug.token.ok ? `ok (len ${debug.token.len}) @ ${debug.token.at}` : `MISSLYCKADES @ ${debug.token.at}`) : '—'}</b></div>
-          <div className="muted">
-            senaste play():{' '}
-            <b>{debug.lastPlay ? `HTTP ${debug.lastPlay.status} ${debug.lastPlay.ok ? 'OK ✓' : (debug.lastPlay.body || '')}${debug.lastPlay.transferred ? ' (efter transfer)' : ''} @ ${debug.lastPlay.at}` : '—'}</b>
-          </div>
-          <div className="muted">spår med spotifyUrl: <b>{tracks.filter((t) => t.spotifyUrl && t.spotifyUrl.trim()).length}/{tracks.length}</b></div>
-          {playerError ? <div className="error-text">player-fel: {playerError}</div> : null}
-          <pre style={{ maxHeight: 220, overflow: 'auto', background: 'var(--surface-2)', padding: '.4rem .5rem', borderRadius: 6, fontSize: '.72rem', margin: 0, whiteSpace: 'pre-wrap' }}>
-            {debug.events.length ? debug.events.map((e) => `${e.t}  [${e.kind}] ${e.msg}`).join('\n') : '(inga händelser än — tryck ▶ Spela)'}
-          </pre>
-        </div>
-      </details>
     </div>
   );
 }
