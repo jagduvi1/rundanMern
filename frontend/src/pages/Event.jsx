@@ -12,7 +12,7 @@
 // (POST /events/:id/reset-results?clearChat), and status-only "reset all" (which
 // keeps scores). "Simulate all" loops per-activity simulate on the event route.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useLocation } from 'react-router-dom';
 import {
   getEvent, getStandings, getTeams, reshuffleTeams, setMembers, updateEvent,
   setEventCode, reorderActivities, setActivitiesStatus, arrive, joinEvent, claimEvent,
@@ -84,6 +84,7 @@ function hostActions(status) {
 export default function Event() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { search } = useLocation(); // reactive query string (so a 2nd QR scan re-claims)
   const { toast, show } = useToast();
   const { hasWebPush } = useBootstrap();
   const { user, patchUser } = useAuth();
@@ -118,7 +119,7 @@ export default function Event() {
   eventRef.current = event;
   const seenInsideRef = useRef(new Set());
   const lastArrivalPostRef = useRef(0);
-  const autoClaimedRef = useRef(false); // QR deep-link claim runs once
+  const claimedUserRef = useRef(null); // last roster userId auto-claimed from a QR (re-claims on a different one)
 
   useDocumentTitle(`${event?.name || 'Evenemang'} · GameDo`);
 
@@ -220,14 +221,18 @@ export default function Event() {
       // Re-claim / re-join to refresh per-activity sessions for newly opened
       // activities (so a player who joined earlier can play the next one).
       try {
-        if (ev.hasRoster) {
+        // A QR/deep-link in the URL (?claimUser=…) takes precedence — let the
+        // auto-claim effect below handle it, so a freshly-scanned name wins over
+        // the identity this device previously stored (no race between the two).
+        const urlClaim = new URLSearchParams(window.location.search).get('claimUser');
+        if (ev.hasRoster && !urlClaim) {
           const uid = getEventUserId(id);
           if (uid) {
             const res = await claimEvent(ev.joinCode, uid);
-            persistClaim(id, res);
+            persistClaim(id, res, ev.activities);
             if (!cancelled) setEventName(res.displayName);
           }
-        } else if (getEventName(id)) {
+        } else if (!urlClaim && getEventName(id)) {
           const res = await joinEvent(ev.joinCode, getEventName(id));
           persistJoin(id, res);
         }
@@ -355,7 +360,7 @@ export default function Event() {
     setBusy(true);
     try {
       const res = await claimEvent(event.joinCode, userId, pin, link);
-      persistClaim(id, res);
+      persistClaim(id, res, event?.activities);
       setEventName(res.displayName);
       setPinFor(null);
       // If we asked to link and it bound, reflect it so the "is this me" prompt
@@ -374,15 +379,23 @@ export default function Event() {
   // that, scanned, claims THAT roster identity automatically; then strip the secret
   // params from the URL. Runs once after the event has loaded.
   useEffect(() => {
-    if (!event || autoClaimedRef.current) return;
-    const params = new URLSearchParams(window.location.search);
+    if (!event) return;
+    const params = new URLSearchParams(search);
     const claimUser = params.get('claimUser');
-    if (!claimUser) return;
-    autoClaimedRef.current = true;
+    // Re-claim only when a DIFFERENT QR is scanned (claimUser changed) — so a 2nd
+    // scan with another name switches identity instead of being ignored, while the
+    // same QR (or the post-claim URL strip) doesn't loop.
+    if (!claimUser || claimedUserRef.current === claimUser) return;
+    claimedUserRef.current = claimUser;
     const pin = params.get('pin') || undefined;
-    claim(claimUser, pin).finally(() => navigate(`/e/${id}`, { replace: true }));
+    // Logged in with no roster identity yet? Bind this scanned identity to the
+    // account (link:true) so the event persists on their profile and they can
+    // re-join later via "Spela som mig" — no QR/code needed. Server-side this only
+    // binds PIN-free, non-admin members to accounts that have no roster link yet.
+    const link = !!(user && !user.userId);
+    claim(claimUser, pin, link).finally(() => navigate(`/e/${id}`, { replace: true }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [event]);
+  }, [event, search]);
 
   // "Spela för en spelare" (host proxy) — take over a roster player whose phone
   // died: claim THEM (their per-activity tokens + member token persist to this
@@ -418,7 +431,7 @@ export default function Event() {
     setBusy(true);
     try {
       const res = await claimEventAsMe(event.joinCode);
-      persistClaim(id, res);
+      persistClaim(id, res, event?.activities);
       setEventName(res.displayName);
       await refreshStandings();
       await reload();
@@ -1972,8 +1985,17 @@ function ArrivalOverlay({ activity, onGo, onDismiss }) {
 // ── Identity persistence helpers ──────────────────────────────────────────────
 // Save the per-activity participant tokens + the roster user/member token a claim
 // produced, so the device re-presents the right identity on each activity.
-function persistClaim(eventId, res) {
+function persistClaim(eventId, res, activities) {
   if (!res) return;
+  // Switching to a DIFFERENT roster identity on this device (e.g. a second QR with
+  // another name was scanned) — forget the PREVIOUS identity's per-activity
+  // participant tokens for this event so the two don't mix (device shows one name
+  // at the event but plays as another inside an activity). The new identity's open
+  // activities are re-set from res.slots below; any others re-join on demand.
+  const prev = getEventUserId(eventId);
+  if (prev && res.userId && String(prev) !== String(res.userId)) {
+    for (const a of activities || []) setParticipantToken(a.id, null);
+  }
   saveEventUserId(eventId, res.userId);
   saveEventName(eventId, res.displayName);
   if (res.memberToken) setMemberToken(eventId, res.memberToken);
