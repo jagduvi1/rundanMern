@@ -1,36 +1,29 @@
 // Admin — "/admin" — the host dashboard (port of rundan's Admin.razor). Stats,
-// events CRUD, standalone-activity creation, Spotify setup (PKCE), and the
-// danger-zone seed / clean-and-seed. Host-only (route wrapped in ProtectedRoute);
-// the MERN port replaces rundan's admin-code gate with a real host account.
+// events CRUD, and per-user Spotify setup (PKCE). Host-only (route wrapped in
+// ProtectedRoute); the MERN port replaces rundan's admin-code gate with a real
+// host account.
 //
-// Contract gaps vs doc 09 (no backend endpoint): there is no "list all
-// activities" route, so the standalone-activities card creates + opens but cannot
-// list existing ones.
+// Events come back from GET /events including archived ones; we split them into
+// an active list (shown by default, counted in stats) and an archived list
+// (collapsed under an accordion). Standalone-activity creation and the demo
+// seed/clean tools were moved out of here — reusable activities now live under
+// "/library" (the Bibliotek tab).
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listEvents, deleteEvent } from '../api/events';
-import { createActivity, listActivities } from '../api/activities';
 import { getLibraryAvailable, getLibraryTags } from '../api/library';
 import {
   listConnections, setClientId, validateConnection, deleteConnection,
 } from '../api/spotify';
-import { seedDemo, cleanAndSeed } from '../api/maintenance';
 import { ApiError } from '../api/client';
-import { ActivityStatus, ActivityType, EventScoring, SlapMode } from '../config/enums';
-import { typeLabel } from '../utils/format';
+import { ActivityStatus, EventScoring, SlapMode } from '../config/enums';
 import { startLogin, redirectUri, SPOTIFY_SCOPES } from '../utils/spotifyAuth';
 import { useAuth } from '../contexts/AuthContext';
 import { useDocumentTitle } from '../utils/useDocumentTitle';
 import { useToast } from '../components/Toast';
 import ConfirmDialog from '../components/ConfirmDialog';
-import StatusBadge from '../components/StatusBadge';
 import Pill from '../components/Pill';
 import AdminNav from '../components/AdminNav';
-
-const CREATE_TYPES = [
-  ActivityType.Quiz, ActivityType.Tipspromenad, ActivityType.Boule, ActivityType.ScoreGame,
-  ActivityType.WordGame, ActivityType.MapPin, ActivityType.MusicQuiz, ActivityType.Memory,
-];
 
 const scoringLabel = (s) => (s === EventScoring.Placement ? 'Placeringspoäng' : 'Kumulativa poäng');
 const slapLabel = (m) => ({
@@ -71,20 +64,19 @@ export default function Admin() {
   const [libraryCount, setLibraryCount] = useState(0);
   const [topics, setTopics] = useState(0);
   const [connections, setConnections] = useState([]);
-  const [standalone, setStandalone] = useState([]);
 
-  const [stTitle, setStTitle] = useState('');
-  const [stType, setStType] = useState(ActivityType.Quiz);
   const [clientIdInput, setClientIdInput] = useState(spotifyClientId || '');
-  const [seedCode, setSeedCode] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
-  const [confirmClean, setConfirmClean] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
 
-  const liveCount = events.reduce(
+  const activeEvents = events.filter((e) => !e.isArchived);
+  const archivedEvents = events.filter((e) => e.isArchived);
+
+  const liveCount = activeEvents.reduce(
     (n, e) => n + (e.activities || []).filter((a) => a.status === ActivityStatus.Live).length, 0,
   );
-  const totalActivities = events.reduce((n, e) => n + (e.activities || []).length, 0);
-  const pendingSlaps = events.filter((e) => e.pendingSlap).length;
+  const totalActivities = activeEvents.reduce((n, e) => n + (e.activities || []).length, 0);
+  const pendingSlaps = activeEvents.filter((e) => e.pendingSlap).length;
 
   const load = async () => {
     setLoading(true);
@@ -104,7 +96,6 @@ export default function Admin() {
     }).catch(() => {});
     // Spotify connections load in the [spotifyClientId] effect below (covers both
     // first mount and client-id changes) — not here, to avoid a double fetch.
-    listActivities().then((list) => setStandalone(Array.isArray(list) ? list : [])).catch(() => {});
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
@@ -126,19 +117,6 @@ export default function Admin() {
     } catch (err) {
       show(err?.message || 'Kunde inte ta bort.');
     } finally {
-      setBusy(false);
-    }
-  };
-
-  const addStandalone = async () => {
-    const title = stTitle.trim();
-    if (!title || busy) return;
-    setBusy(true);
-    try {
-      const a = await createActivity({ title, type: stType });
-      navigate(`/manage/${a.id}`);
-    } catch (err) {
-      show(err?.message || 'Kunde inte skapa aktivitet.');
       setBusy(false);
     }
   };
@@ -186,37 +164,6 @@ export default function Admin() {
     }
   };
 
-  const runSeed = async () => {
-    setBusy(true);
-    try {
-      await seedDemo();
-      show('Demodata laddat.');
-      await load();
-    } catch (err) {
-      show(err?.message || 'Seed misslyckades.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const runCleanSeed = async () => {
-    setConfirmClean(false);
-    const code = seedCode.trim();
-    if (!code) { show('Ange bekräftelsekoden.'); return; }
-    setBusy(true);
-    try {
-      await cleanAndSeed(code);
-      setSeedCode('');
-      show('Rensat och seedat.');
-      await load();
-    } catch (err) {
-      // A timeout can leave data in an unknown state — surface that distinctly.
-      show(err?.message || 'Rensningen misslyckades — data kan vara i okänt läge.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <>
       {toast}
@@ -224,7 +171,7 @@ export default function Admin() {
 
       {/* Stat widgets */}
       <div className="row wrap" style={{ gap: 10, marginBottom: 12 }}>
-        <Stat num={events.length} label={`Evenemang`} sub={liveCount > 0 ? `${liveCount} live nu` : null} />
+        <Stat num={activeEvents.length} label={`Evenemang`} sub={liveCount > 0 ? `${liveCount} live nu` : null} />
         <Stat num={totalActivities} label="Aktiviteter" />
         <Stat num={libraryCount} label="Frågebibliotek" sub={topics > 0 ? `${topics} ämnen` : null} />
       </div>
@@ -246,70 +193,24 @@ export default function Admin() {
 
         {loading ? (
           <span className="spinner" style={{ margin: '1rem auto' }} />
-        ) : events.length === 0 ? (
-          <p className="muted">Inga evenemang ännu.</p>
+        ) : activeEvents.length === 0 ? (
+          <p className="muted">Inga aktiva evenemang ännu.</p>
         ) : (
-          events.map((ev) => (
-            <div key={ev.id} className="card stack" style={{ background: 'var(--surface-2)' }}>
-              <div className="spread">
-                <h3 style={{ margin: 0 }}>{ev.name} <span className="muted small">· kod {ev.joinCode}</span></h3>
-                {ev.isComplete ? <Pill kind="ok">klar</Pill> : null}
-                {ev.pendingSlap ? <Pill kind="warn">nyp väntar</Pill> : null}
-              </div>
-              <div className="row wrap" style={{ gap: 6 }}>
-                <Pill>{scoringLabel(ev.scoring)}</Pill>
-                <Pill>{slapLabel(ev.slapMode)}</Pill>
-                <Pill>Lag om {ev.teamSize}</Pill>
-                {(ev.viewers || []).length > 0 ? <Pill>{ev.viewers.length} tittar</Pill> : null}
-              </div>
-              {statusSummary(ev.activities) ? <div className="muted small">{statusSummary(ev.activities)}</div> : null}
-              <div className="row">
-                <button type="button" className="btn sm" onClick={() => navigate(`/e/${ev.id}`)}>Öppna & redigera</button>
-                <button type="button" className="btn ghost sm danger" onClick={() => setConfirmDeleteId(ev.id)} disabled={busy}>Ta bort</button>
-              </div>
-            </div>
+          activeEvents.map((ev) => (
+            <EventRow key={ev.id} ev={ev} navigate={navigate} busy={busy} onDelete={setConfirmDeleteId} />
           ))
         )}
-      </div>
 
-      {/* Standalone activity */}
-      <div className="card stack">
-        <h2 style={{ margin: 0 }}>Fristående aktivitet</h2>
-        <p className="muted small">Skapa en aktivitet utan evenemang. Den öppnas direkt i hanteringsvyn.</p>
-
-        {standalone.length > 0 ? (
-          <div className="stack" style={{ gap: 6 }}>
-            {standalone.map((a) => (
-              <div key={a.id} className="card stack" style={{ background: 'var(--surface-2)', gap: 6 }}>
-                <div className="spread">
-                  <h3 style={{ margin: 0 }}>{a.title} <span className="muted small">· {typeLabel(a.type)}</span></h3>
-                  <StatusBadge status={a.status} />
-                </div>
-                <div className="muted small">kod {a.joinCode}{a.isPublic ? ' · publik' : ''}</div>
-                <div className="row">
-                  <button type="button" className="btn sm" onClick={() => navigate(`/manage/${a.id}`)}>Hantera</button>
-                  <button type="button" className="btn ghost sm" onClick={() => navigate(`/a/${a.id}`)}>Öppna</button>
-                </div>
-              </div>
-            ))}
-          </div>
+        {archivedEvents.length > 0 ? (
+          <>
+            <button type="button" className="btn ghost block" onClick={() => setShowArchived((s) => !s)}>
+              {showArchived ? '▾' : '▸'} Arkiverade ({archivedEvents.length})
+            </button>
+            {showArchived ? archivedEvents.map((ev) => (
+              <EventRow key={ev.id} ev={ev} navigate={navigate} busy={busy} onDelete={setConfirmDeleteId} />
+            )) : null}
+          </>
         ) : null}
-
-        <div className="row wrap">
-          <input
-            type="text"
-            className="grow"
-            value={stTitle}
-            onChange={(e) => setStTitle(e.target.value)}
-            placeholder="Titel"
-            maxLength={80}
-            style={{ minWidth: 160 }}
-          />
-          <select value={stType} onChange={(e) => setStType(Number(e.target.value))} style={{ width: 'auto' }}>
-            {CREATE_TYPES.map((t) => <option key={t} value={t}>{typeLabel(t)}</option>)}
-          </select>
-          <button type="button" className="btn sm success" onClick={addStandalone} disabled={busy || !stTitle.trim()}>Skapa</button>
-        </div>
       </div>
 
       {/* Spotify — per-user: each host connects their OWN Spotify app + account. */}
@@ -356,28 +257,6 @@ export default function Admin() {
         )}
       </div>
 
-      {/* Danger zone */}
-      <div className="card stack" style={{ borderColor: 'var(--danger)' }}>
-        <h2 style={{ margin: 0 }}>Farozon</h2>
-        <div className="row wrap">
-          <button type="button" className="btn ghost sm" onClick={runSeed} disabled={busy}>Ladda demodata</button>
-        </div>
-        <p className="muted small" style={{ marginTop: 4 }}>
-          "Rensa & seed" raderar allt och seedar om demon på nytt. Skriv bekräftelsekoden för att fortsätta.
-        </p>
-        <div className="row wrap">
-          <input
-            type="text"
-            className="grow"
-            value={seedCode}
-            onChange={(e) => setSeedCode(e.target.value)}
-            placeholder="Bekräftelsekod"
-            style={{ minWidth: 160 }}
-          />
-          <button type="button" className="btn sm danger" onClick={() => setConfirmClean(true)} disabled={busy || !seedCode.trim()}>Rensa & seed</button>
-        </div>
-      </div>
-
       <ConfirmDialog
         open={confirmDeleteId != null}
         title="Ta bort evenemang?"
@@ -387,16 +266,31 @@ export default function Admin() {
         onConfirm={() => removeEvent(confirmDeleteId)}
         onCancel={() => setConfirmDeleteId(null)}
       />
-      <ConfirmDialog
-        open={confirmClean}
-        title="Rensa & seed om?"
-        message="Detta raderar ALLT och seedar om demon. Säker?"
-        confirmLabel="Rensa allt"
-        danger
-        onConfirm={runCleanSeed}
-        onCancel={() => setConfirmClean(false)}
-      />
     </>
+  );
+}
+
+function EventRow({ ev, navigate, busy, onDelete }) {
+  return (
+    <div className="card stack" style={{ background: 'var(--surface-2)' }}>
+      <div className="spread">
+        <h3 style={{ margin: 0 }}>{ev.name} <span className="muted small">· kod {ev.joinCode}</span></h3>
+        {ev.isComplete ? <Pill kind="ok">klar</Pill> : null}
+        {ev.isArchived ? <Pill>arkiverad</Pill> : null}
+        {ev.pendingSlap ? <Pill kind="warn">nyp väntar</Pill> : null}
+      </div>
+      <div className="row wrap" style={{ gap: 6 }}>
+        <Pill>{scoringLabel(ev.scoring)}</Pill>
+        <Pill>{slapLabel(ev.slapMode)}</Pill>
+        <Pill>Lag om {ev.teamSize}</Pill>
+        {(ev.viewers || []).length > 0 ? <Pill>{ev.viewers.length} tittar</Pill> : null}
+      </div>
+      {statusSummary(ev.activities) ? <div className="muted small">{statusSummary(ev.activities)}</div> : null}
+      <div className="row">
+        <button type="button" className="btn sm" onClick={() => navigate(`/e/${ev.id}`)}>Öppna & redigera</button>
+        <button type="button" className="btn ghost sm danger" onClick={() => onDelete(ev.id)} disabled={busy}>Ta bort</button>
+      </div>
+    </div>
   );
 }
 
