@@ -2,10 +2,11 @@
 // The React port of rundan's MusicHostPanel.razor. Lists the tracks; each "Start"
 // reveals a track to players (POST .../music/start/:qid → emits MusicTrackStarted +
 // starts a countdown) and, if speedScoring is on, begins a fastest-to-answer round.
-// Starting a track also plays it via Spotify if a URL is set. When a Spotify
-// connection exists it plays the full track in-app via the Web Playback SDK
-// (useSpotifyPlayer, Premium required); otherwise the "Spotify ↗" link opens the
-// track. Host-only — mounted by Activity.jsx behind the canManage check.
+// "Starta" reveals only; "▶ Spela" plays only; "▶ Starta & spela" does both. With a
+// Spotify connection, playback uses the Web Playback SDK (useSpotifyPlayer, Premium
+// required) and a "Spotify ↗" link is offered as an external fallback; without one,
+// "▶ Spela" opens the track in Spotify. Host-only — mounted by Activity.jsx behind
+// the canManage check.
 //
 // Props:
 //   activity : ActivityDto — reads { id, spotifyConnectionId, speedScoring }.
@@ -207,8 +208,14 @@ export default function MusicHostPanel({ activity }) {
                 </button>
                 {t.spotifyUrl && t.spotifyUrl.trim() ? (
                   <>
-                    <button type="button" className="btn sm" onClick={() => playTrack(t)} disabled={playBusy}>▶ Spela</button>
+                    <button type="button" className="btn sm" onClick={() => playTrack(t)} disabled={playBusy} title={canPlayInApp ? 'Spela hela spåret i appen (Premium)' : 'Öppna i Spotify'}>▶ Spela</button>
                     <button type="button" className="btn sm success" onClick={() => startRound(t, { autoPlay: true })} disabled={busy}>▶ Starta & spela</button>
+                    {/* External fallback for Premium hosts (the failure messages point
+                        here when in-app playback won't start). Non-Premium hosts already
+                        open Spotify via "▶ Spela", so the link would be redundant there. */}
+                    {canPlayInApp ? (
+                      <a className="btn sm ghost" href={t.spotifyUrl} target="_blank" rel="noopener noreferrer" title="Öppna spåret i Spotify">Spotify ↗</a>
+                    ) : null}
                   </>
                 ) : null}
               </div>
