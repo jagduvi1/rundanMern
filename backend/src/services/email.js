@@ -45,12 +45,25 @@ async function send({ to, subject, html, text }) {
   }
 }
 
+// HTML-escape host-controlled text (event names, display names) and only allow
+// http(s) CTA URLs — these strings are interpolated into HTML emails sent from the
+// trusted sender domain, so unescaped input would be HTML/link injection.
+const escapeHtml = (s) => String(s ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+const safeHttpUrl = (u) => (/^https?:\/\//i.test(String(u ?? '').trim()) ? String(u).trim() : '');
+
 function wrapTemplate({ title, intro, ctaUrl, ctaLabel, footer }) {
+  const t = escapeHtml(title);
+  const i = escapeHtml(intro);
+  const label = escapeHtml(ctaLabel || 'Open');
+  const url = safeHttpUrl(ctaUrl);
+  const f = footer ? escapeHtml(footer) : '';
   return `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#222">
-<h1 style="font-size:20px">${title}</h1>
-<p style="line-height:1.5">${intro}</p>
-${ctaUrl ? `<p><a href="${ctaUrl}" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">${ctaLabel || 'Open'}</a></p>` : ''}
-${footer ? `<p style="color:#777;font-size:12px;margin-top:24px">${footer}</p>` : ''}
+<h1 style="font-size:20px">${t}</h1>
+<p style="line-height:1.5">${i}</p>
+${url ? `<p><a href="${escapeHtml(url)}" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">${label}</a></p>` : ''}
+${f ? `<p style="color:#777;font-size:12px;margin-top:24px">${f}</p>` : ''}
 </body></html>`;
 }
 

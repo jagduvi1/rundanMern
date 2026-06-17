@@ -24,6 +24,24 @@ const { pushScoreboard } = require('../services/scoreboard');
 
 const router = express.Router();
 
+// Web Push endpoints must be https URLs at a known push service — reject anything
+// else so an attacker-supplied endpoint can't turn the server's outbound push into
+// a blind SSRF to internal/loopback/metadata addresses.
+const PUSH_HOST_RE = /(\.googleapis\.com|\.push\.services\.mozilla\.com|\.notify\.windows\.com|\.wns\.windows\.com|\.push\.apple\.com)$/i;
+function isAllowedPushEndpoint(raw) {
+  let u;
+  try { u = new URL(String(raw)); } catch { return false; }
+  if (u.protocol !== 'https:') return false;
+  const host = u.hostname.toLowerCase();
+  if (/^\d/.test(host) || host.includes(':')) return false; // raw IPv4/IPv6 — real services use DNS names
+  return PUSH_HOST_RE.test(host);
+}
+
+// Per-event cooldown so chat can't be used to spam native push notifications
+// (each chat post would otherwise fan a push out to every subscriber).
+const CHAT_PUSH_COOLDOWN_MS = 30 * 1000;
+const lastChatPush = new Map();
+
 // Recently-seen viewer names — distinct (case-insensitive), sorted, lastSeenUtc
 // within the last 15 minutes (port of CurrentViewerNamesAsync).
 const VIEWER_WINDOW_MS = 15 * 60 * 1000;
@@ -83,7 +101,12 @@ router.post(
     const dto = chatMessageDto(msg);
     const eventId = idStr(req.params.id);
     chatPosted(eventId, dto);
-    push.notify(eventId, `💬 ${dto.author}`, dto.text, `e/${eventId}`, 'chat');
+    // Rate-limit the push fan-out per event so chat can't spam subscribers' devices.
+    const nowMs = Date.now();
+    if (nowMs - (lastChatPush.get(eventId) || 0) >= CHAT_PUSH_COOLDOWN_MS) {
+      lastChatPush.set(eventId, nowMs);
+      push.notify(eventId, `💬 ${dto.author}`, dto.text, `e/${eventId}`, 'chat');
+    }
     return res.json(dto);
   })
 );
@@ -160,7 +183,7 @@ router.post(
     const endpoint = (req.body?.endpoint ?? '').toString().trim();
     const p256dh = (req.body?.p256dh ?? '').toString().trim();
     const auth = (req.body?.auth ?? '').toString().trim();
-    if (!endpoint || !p256dh || !auth) {
+    if (!endpoint || !p256dh || !auth || !isAllowedPushEndpoint(endpoint)) {
       throw new RuleViolation('Invalid push subscription.');
     }
     if (!(await Event.exists({ _id: req.params.id }))) {

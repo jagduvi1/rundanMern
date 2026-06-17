@@ -12,6 +12,11 @@ const magicLink = require('../services/magicLink');
 const invites = require('../services/invites');
 const { eventChanged } = require('../socket/emit');
 
+// Cost-matched dummy hash so a failed login takes the same time whether or not the
+// account exists or has a password — closes the bcrypt cost-mismatch enumeration
+// oracle. Same cost factor (12) as real password hashes (see Account.js).
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 12);
+
 // Host/admin account auth — the Glosan template adapted to rundan's Account
 // model. Players never use this (they get anonymous participant tokens). The
 // first account to register becomes the bootstrap super-admin.
@@ -235,8 +240,7 @@ router.post('/login', authLimiter, async (req, res) => {
     });
     // Always run bcrypt to avoid user-enumeration timing. A passwordless (invited)
     // account compares against the dummy hash ⇒ password login fails (use the link).
-    const DUMMY_HASH = '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
-    const isMatch = await bcrypt.compare(password, account && account.password ? account.password : DUMMY_HASH);
+    const isMatch = await bcrypt.compare(password, account && account.password ? account.password : DUMMY_PASSWORD_HASH);
     if (!account || !isMatch) return res.status(401).json({ error: 'Invalid credentials' });
     const accessToken = await issueTokens(account, res);
     res.json({ token: accessToken, user: userResponse(account) });

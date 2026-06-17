@@ -12,6 +12,9 @@ const teamSchema = new mongoose.Schema({
   cards: { type: [timelineCardSchema], default: [] },
   bonusCount: { type: Number, default: 0 },
   totalBonus: { type: Number, default: 0 },
+  // questionId of the card this team last made a bonus guess for — one bonus
+  // attempt per drawn card (prevents replaying a correct guess for free points).
+  bonusGuessedForCardId: { type: String, default: null },
 }, { _id: false });
 
 const hitsterGameSchema = new mongoose.Schema({

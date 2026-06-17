@@ -739,6 +739,10 @@ router.delete(
 
     const dto = await loadEventDto(event);
     dto.canManage = await canManageEvent(req, event);
+    // A co-host who just removed themselves can no longer manage — strip the
+    // host-only fields (owner/co-host emails + claim PINs) on the way out instead
+    // of leaking them (no-ops while canManage is true).
+    redactManagement(dto);
     res.json(dto);
   })
 );
@@ -1206,7 +1210,10 @@ router.post(
     // Claiming your OWN logged-in identity needs no PIN; anyone else claiming a
     // protected member (admin, or a host-set PIN) must present the correct PIN.
     const isOwn = !!ownUserId && ownUserId === String(userId);
-    if (member.claimPin && !isOwn) {
+    // An admin (co-host) member is ALWAYS PIN-gated — even "play as me" — so an
+    // account that got bound to a now-admin roster identity can't claim the co-host
+    // token PIN-free (TOCTOU: invite designated while non-admin, later promoted).
+    if (member.claimPin && (!isOwn || member.isAdmin)) {
       const pin = typeof req.body?.pin === 'string' ? req.body.pin.trim() : '';
       if (!timingSafeEqualStr(pin, member.claimPin)) {
         throw new RuleViolation(
