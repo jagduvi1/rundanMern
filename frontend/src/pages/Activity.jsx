@@ -99,6 +99,9 @@ export default function Activity() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [scoreVersion, setScoreVersion] = useState(0);
+  // Arcade host-control dock: controlled so it auto-collapses when a track starts,
+  // letting the answer tiles take the screen (the host can re-open it any time).
+  const [hostDockOpen, setHostDockOpen] = useState(false);
   const [live, setLive] = useState('connecting'); // connecting | live | offline
 
   // Refs for handlers/poll that must read the latest without re-subscribing.
@@ -416,10 +419,14 @@ export default function Activity() {
             so playback survives and the host can start the next track without
             leaving the neon view. Players never see this. */}
         {canManage ? (
-          <details className="arcade-hostdock">
+          <details
+            className="arcade-hostdock"
+            open={hostDockOpen}
+            onToggle={(e) => setHostDockOpen(e.currentTarget.open)}
+          >
             <summary>🎵 Värdkontroller — starta spår</summary>
             <div className="arcade-hostdock-body">
-              <MusicHostPanel activity={activity} />
+              <MusicHostPanel activity={activity} onTrackStart={() => setHostDockOpen(false)} />
             </div>
           </details>
         ) : null}
