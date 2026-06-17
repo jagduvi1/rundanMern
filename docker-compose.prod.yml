@@ -98,7 +98,10 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=${TRAEFIK_NETWORK:-web}"
-      - "traefik.http.routers.rundan.rule=Host(`${RUNDAN_HOST:?set RUNDAN_HOST to your domain}`)"
+      # Default routes the single RUNDAN_HOST. Set RUNDAN_RULE for a full Traefik
+      # rule when serving several hosts (e.g. apex + www + a legacy domain during a
+      # cutover): RUNDAN_RULE=Host(`gamedo.app`) || Host(`www.gamedo.app`) || Host(`rundan.jeklund.dev`)
+      - "traefik.http.routers.rundan.rule=${RUNDAN_RULE:-Host(`${RUNDAN_HOST:?set RUNDAN_HOST to your domain}`)}"
       - "traefik.http.routers.rundan.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
       - "traefik.http.routers.rundan.tls=${TRAEFIK_TLS:-true}"
       # If Traefik (not a Cloudflare origin cert) issues the certificate, set a resolver:
