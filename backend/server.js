@@ -66,6 +66,15 @@ connectDB().then(async () => {
     }
   }
 
+  // Idempotent data migrations (scope the roster per-account, etc.).
+  try {
+    // eslint-disable-next-line global-require
+    const { migrateUserOwnership } = require('./src/services/migrations');
+    await migrateUserOwnership();
+  } catch (e) {
+    console.error('User-ownership migration failed:', e.message);
+  }
+
   const server = http.createServer(app);
   initSockets(server);
   server.listen(PORT, () => console.log(`${env.appName} backend running on port ${PORT}`));

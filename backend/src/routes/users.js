@@ -1,15 +1,17 @@
 const express = require('express');
+const mongoose = require('mongoose');
 
 // UserEndpoints (/api/users) — the roster. The MERN port of rundan's
 // UserEndpoints.cs. A `User` is a pre-registered roster person (`UserDto =
-// { id, name }`), NOT an auth account. In the original these were gated by the
-// shared admin code; in the port, roster management requires a logged-in host
-// (`requireAuth` — a global `admin` account, or any authenticated host), per the
-// hybrid-auth model. Responses always go through `userDto`.
-const { User } = require('../models');
+// { id, name }`), NOT an auth account. Roster management requires a logged-in
+// host (`requireAuth`), and each person belongs to the account that created it
+// (`User.owner`) — a host only ever sees/edits THEIR OWN people. Responses always
+// go through `userDto`.
+const { User, Event, EventMember } = require('../models');
 const { userDto } = require('../services/serializers');
 const { RuleViolation, asyncHandler } = require('../middleware/error');
 const { requireAuth } = require('../middleware/auth');
+const { canManageEvent } = require('../middleware/eventAuth');
 const { deleteUserCascade } = require('../services/cascade');
 
 const router = express.Router();
@@ -23,25 +25,26 @@ function cleanName(raw) {
   return name;
 }
 
-// POST /api/users — create a roster user.
-// Auth: logged-in host (requireAuth). 409 on a duplicate exact name.
+// POST /api/users — create a roster user owned by the caller.
+// Auth: logged-in host (requireAuth). 409 on a name already in YOUR roster.
 router.post(
   '/',
   requireAuth,
   asyncHandler(async (req, res) => {
     const name = cleanName(req.body?.name);
+    const owner = req.user.id;
 
-    if (await User.exists({ name })) {
-      throw new RuleViolation('That name is already in the roster.', 409);
+    if (await User.exists({ owner, name })) {
+      throw new RuleViolation('That name is already in your roster.', 409);
     }
 
     let user;
     try {
-      user = await User.create({ name, createdUtc: new Date() });
+      user = await User.create({ name, owner, createdUtc: new Date() });
     } catch (err) {
       // Unique-index race → same 409 the pre-check would have raised.
       if (err && err.code === 11000) {
-        throw new RuleViolation('That name is already in the roster.', 409);
+        throw new RuleViolation('That name is already in your roster.', 409);
       }
       throw err;
     }
@@ -50,13 +53,27 @@ router.post(
   })
 );
 
-// GET /api/users — list all roster users, ordered by name ascending.
-// Auth: logged-in host (requireAuth).
+// GET /api/users — list the caller's own roster people, ordered by name.
+// Auth: logged-in host (requireAuth). Optional `?eventId=` (when the caller can
+// manage that event) additionally includes people already on the event's roster,
+// so the event picker keeps members invited/added by others (co-hosts) selectable.
 router.get(
   '/',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const users = await User.find().sort({ name: 1 });
+    const ownFilter = { owner: req.user.id };
+    let filter = ownFilter;
+
+    const { eventId } = req.query;
+    if (eventId && mongoose.Types.ObjectId.isValid(eventId)) {
+      const event = await Event.findById(eventId);
+      if (event && (await canManageEvent(req, event))) {
+        const memberIds = await EventMember.find({ eventId }).distinct('userId');
+        filter = { $or: [ownFilter, { _id: { $in: memberIds } }] };
+      }
+    }
+
+    const users = await User.find(filter).sort({ name: 1 });
     res.json(users.map(userDto));
   })
 );
@@ -70,13 +87,13 @@ router.put(
   '/:id',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const user = await User.findById(req.params.id);
+    const user = await User.findOne({ _id: req.params.id, owner: req.user.id });
     if (!user) return res.status(404).json({ error: 'User not found.' });
 
     const name = cleanName(req.body?.name);
 
-    if (await User.exists({ name, _id: { $ne: user._id } })) {
-      throw new RuleViolation('That name is already in the roster.', 409);
+    if (await User.exists({ owner: req.user.id, name, _id: { $ne: user._id } })) {
+      throw new RuleViolation('That name is already in your roster.', 409);
     }
 
     user.name = name;
@@ -110,7 +127,7 @@ router.delete(
   '/:id',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const user = await User.findById(req.params.id);
+    const user = await User.findOne({ _id: req.params.id, owner: req.user.id });
     if (!user) return res.status(404).json({ error: 'User not found.' });
 
     await deleteUserCascade(user._id);
