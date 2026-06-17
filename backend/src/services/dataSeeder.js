@@ -127,7 +127,8 @@ async function seedIfEmpty() {
     ActivityStatus.Live,
   );
   walk.randomizeQuestions = true;
-  walk.isPublic = true; // reusable from the library
+  walk.inLibrary = true; // a reusable library template…
+  walk.isPublic = true; // …shared publicly
   const walkQuestions = [
     geoMc(1, 'Sveriges största sjö?', 59.3250, 18.1000, [['Vänern', true], ['Vättern', false], ['Mälaren', false]]),
     geoMc(2, 'Hur många kommuner har Sverige?', 59.3256, 18.1012, [['90', false], ['290', true], ['490', false]]),
@@ -149,7 +150,8 @@ async function seedIfEmpty() {
     ActivityStatus.Open,
   );
   marsh.scoreEntryMode = ScoreEntryMode.PerPlayer; // each catcher's catches add to the team
-  marsh.isPublic = true; // reusable from the library
+  marsh.inLibrary = true; // a reusable library template…
+  marsh.isPublic = true; // …shared publicly
 
   // 3 — Skala potatis: fastest time wins.
   const potato = newActivity(
@@ -211,7 +213,8 @@ async function seedIfEmpty() {
     + 'får vända upp 10 av dem. Längst ord vinner.',
     ActivityStatus.Open,
   );
-  words.isPublic = true; // reusable from the library
+  words.inLibrary = true; // a reusable library template…
+  words.isPublic = true; // …shared publicly
 
   activityDocs.push(walk, marsh, potato, boule, tower, corn, ring, words);
 

@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useLocation } from 'react-router-dom';
 import {
   getActivity, updateActivity, setActivityStatus, deleteActivity, setCourts,
+  addActivityToLibrary,
 } from '../api/activities';
 import { resetResults } from '../api/simulation';
 import { listConnections } from '../api/spotify';
@@ -71,10 +72,27 @@ export default function Manage() {
   const [connections, setConnections] = useState([]);
   const [qVersion, setQVersion] = useState(0); // bump to re-key the editors
   const [confirm, setConfirm] = useState(null); // 'delete' | 'reset' | null
+  const [libBusy, setLibBusy] = useState(false); // "add to library" in flight
 
   // Edit fields
   const [f, setF] = useState(null);
   const set = (key) => (val) => setF((s) => ({ ...s, [key]: val }));
+
+  // Snapshot this activity into the host's reusable library (a standalone template).
+  // Saves the activity as currently stored on the server; remind the host to save
+  // edits first if the form is dirty.
+  async function onAddToLibrary() {
+    if (!activity) return;
+    setLibBusy(true);
+    try {
+      await addActivityToLibrary(activity.id);
+      show('Sparad i ditt bibliotek ✓');
+    } catch (e) {
+      show(e?.message || 'Kunde inte spara till biblioteket.');
+    } finally {
+      setLibBusy(false);
+    }
+  }
 
   // Unsaved-changes guard: the details form differs from the saved activity.
   const dirty = useMemo(
@@ -367,7 +385,18 @@ export default function Manage() {
           <ImageUploader value={f.imageUrl || ''} onChange={set('imageUrl')} />
         </div>
 
-        <CheckboxField checked={f.isPublic} onChange={set('isPublic')} label="Lägg till i biblioteket (återanvändbar i andra evenemang)" />
+        {activity.eventId ? (
+          <div className="field">
+            <label>Bibliotek</label>
+            <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+              <button type="button" className="btn ghost sm" disabled={libBusy} onClick={onAddToLibrary}>
+                {libBusy ? 'Sparar…' : '+ Lägg till i biblioteket'}
+              </button>
+              <span className="muted small">Sparar en återanvändbar kopia. Hantera & dela under <Link to="/library">Bibliotek</Link>.</span>
+            </div>
+            {dirty ? <p className="muted small" style={{ margin: '4px 0 0' }}>Tips: spara dina ändringar först — kopian tar med det som är sparat.</p> : null}
+          </div>
+        ) : null}
 
         {usesQuestions ? (
           <>

@@ -143,6 +143,7 @@ export default function AppMenu({ open, onClose }) {
           {user ? (
             <>
               <Link to="/create" onClick={onClose} style={{ ...linkStyle, color: 'var(--accent-dark)' }}>+ Skapa evenemang</Link>
+              <Link to="/library" onClick={onClose} style={linkStyle}>Bibliotek</Link>
               <Link to="/profile" onClick={onClose} style={linkStyle}>Min profil</Link>
               <Link to="/admin" onClick={onClose} style={linkStyle}>Värdinställningar</Link>
               <Link to="/admin/users" onClick={onClose} style={linkStyle}>Personer</Link>
