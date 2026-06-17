@@ -411,6 +411,18 @@ export default function Activity() {
           board={board}
           onExit={() => setArcade(false)}
         />
+        {/* A competing host still needs to run the show from arcade mode: a
+            collapsible dock keeps the host panel (and its Spotify player) mounted,
+            so playback survives and the host can start the next track without
+            leaving the neon view. Players never see this. */}
+        {canManage ? (
+          <details className="arcade-hostdock">
+            <summary>🎵 Värdkontroller — starta spår</summary>
+            <div className="arcade-hostdock-body">
+              <MusicHostPanel activity={activity} />
+            </div>
+          </details>
+        ) : null}
       </>
     );
   }
