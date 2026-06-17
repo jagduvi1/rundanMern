@@ -150,7 +150,10 @@ function questionAdminDto(q, { hidden = false } = {}) {
     return {
       id: idStr(q), order: q.order, text: '', kind: q.kind, points: q.points,
       imageUrl: null, latitude: null, longitude: null, radiusMeters: null,
-      acceptedFreeTextAnswer: null, spotifyUrl: null, acceptedArtist: null, releaseYear: null,
+      // Keep spotifyUrl even when the answer is hidden: the host still needs it to
+      // PLAY the track (the "▶ Spela" / "Spotify ↗" controls). It's not a real leak —
+      // the host authored the answers; "hide" just keeps them off-screen while playing.
+      acceptedFreeTextAnswer: null, spotifyUrl: q.spotifyUrl ?? null, acceptedArtist: null, releaseYear: null,
       options: [], hidden: true, hasLocation, isComplete: true,
     };
   }
