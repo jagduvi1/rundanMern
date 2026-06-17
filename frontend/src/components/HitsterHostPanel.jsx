@@ -7,6 +7,10 @@ import { getSocket } from '../utils/socket';
 import { ServerEvents } from '../config/socketEvents';
 import Spinner from './Spinner';
 
+// A track is usable in Hitster only with a real release year — null/undefined/0
+// don't count (Hitster places cards by year).
+const hasReleaseYear = (t) => t.releaseYear != null && t.releaseYear !== 0;
+
 export default function HitsterHostPanel({ activity }) {
   const canPlayInApp = activity?.spotifyConnectionId != null;
   const { ready, play, pause, resume, activate } = useSpotifyPlayer(activity?.spotifyConnectionId || null);
@@ -131,12 +135,13 @@ export default function HitsterHostPanel({ activity }) {
     <div className="card stack">
       <h2 style={{ margin: 0 }}>🎵 Hitster — Värdpanel</h2>
       {error ? <div style={errorStyle}>{error}</div> : null}
+      <MissingYearWarning tracks={tracks} />
 
       {/* Not started yet */}
       {!state?.started ? (
         <div className="stack">
           <p className="muted">
-            {tracks.filter((t) => t.releaseYear != null).length} spår med årtal redo.
+            {tracks.filter(hasReleaseYear).length} spår med årtal redo.
             Starta spelet för att blanda och dela ut kort.
           </p>
           <button type="button" className="btn success" onClick={doStart} disabled={busy}>
@@ -256,6 +261,36 @@ function HostTimelines({ teams }) {
     </div>
   );
 }
+
+// Warns the host about tracks that can't be used in Hitster (no release year)
+// and lists which ones, so they know what to fix in the track editor.
+function MissingYearWarning({ tracks }) {
+  const missing = (tracks || []).filter((t) => !hasReleaseYear(t));
+  if (missing.length === 0) return null;
+  return (
+    <details style={warnStyle}>
+      <summary style={{ cursor: 'pointer', fontWeight: 700 }}>
+        ⚠ {missing.length} spår saknar årtal — de hoppas över i Hitster
+      </summary>
+      <ul style={{ margin: '.5rem 0 0', paddingLeft: '1.2rem', fontWeight: 400 }}>
+        {missing.map((t) => (
+          <li key={t.id}>
+            {t.acceptedFreeTextAnswer || t.acceptedArtist || 'Namnlöst spår'}
+            {t.acceptedFreeTextAnswer && t.acceptedArtist ? ` — ${t.acceptedArtist}` : ''}
+          </li>
+        ))}
+      </ul>
+      <p className="muted small" style={{ margin: '.4rem 0 0', fontWeight: 400 }}>
+        Lägg till utgivningsår på dessa spår i låtredigeraren (Hantera) för att ta med dem.
+      </p>
+    </details>
+  );
+}
+
+const warnStyle = {
+  padding: '10px 12px', borderRadius: 'var(--radius-sm, 8px)',
+  background: '#fef3c7', color: '#92400e', fontWeight: 600,
+};
 
 const hitsterCardStyle = {
   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
