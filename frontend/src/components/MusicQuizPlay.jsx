@@ -75,6 +75,9 @@ export default function MusicQuizPlay({ activity, participant }) {
         }
         setTracks(qs);
         setAnswered(ans);
+        // my-answers now carries the reveal (correct song/artist/year, ✓/✗, ⏱), so
+        // seed results too — the per-track feedback now survives a reload.
+        setResults(new Map(ans));
         setLive(lv);
         tracksRef.current = qs;
         liveRef.current = lv;

@@ -17,6 +17,8 @@ export default function HitsterPlay({ activity, participant }) {
   const [busy, setBusy] = useState(false);
 
   const disposedRef = useRef(false);
+  const busyRef = useRef(false); // synchronous guard so a rapid double-tap can't double-submit
+  const actedCardRef = useRef(null); // questionId of the card we last acted on (don't reset its result on echo)
   const myId = participant?.id || participant?._id || '';
 
   useEffect(() => {
@@ -36,11 +38,18 @@ export default function HitsterPlay({ activity, participant }) {
     const onUpdate = (dto) => {
       if (!alive || !dto || String(dto.activityId) !== String(activity.id)) return;
       setState(dto);
-      setPlaceResult(null);
-      setBonusResult(null);
-      setBonusSubmitted(false);
-      setTitleGuess('');
-      setArtistGuess('');
+      // Only reset the guess/result UI when a FRESH card arrives for US — NOT on the
+      // echo of our own bonus/place (same card), which would wipe the result we just
+      // got from the HTTP response and reopen the form (then 409 on a re-tap).
+      const myTurn = dto.currentTeamId && String(dto.currentTeamId) === String(myId);
+      const cardId = dto.currentCard?.questionId ? String(dto.currentCard.questionId) : null;
+      if (myTurn && cardId && cardId !== actedCardRef.current) {
+        setPlaceResult(null);
+        setBonusResult(null);
+        setBonusSubmitted(false);
+        setTitleGuess('');
+        setArtistGuess('');
+      }
     };
     getSocket().then((s) => {
       if (!alive) return;
@@ -79,7 +88,9 @@ export default function HitsterPlay({ activity, participant }) {
   const currentTeam = state.teams.find((t) => t.participantId === state.currentTeamId);
 
   async function doBonus() {
-    if (busy || bonusSubmitted) return;
+    if (busyRef.current || bonusSubmitted) return; // ref guard blocks a rapid double-tap
+    busyRef.current = true;
+    actedCardRef.current = state.currentCard?.questionId ? String(state.currentCard.questionId) : null;
     setBusy(true);
     try {
       const res = await submitHitsterBonus(activity.id, titleGuess, artistGuess);
@@ -91,12 +102,15 @@ export default function HitsterPlay({ activity, participant }) {
     } catch (e) {
       if (!disposedRef.current) setError(e?.message);
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
 
   async function doPlace(position) {
-    if (busy) return;
+    if (busyRef.current) return; // ref guard blocks a rapid double-tap (double-place)
+    busyRef.current = true;
+    actedCardRef.current = state.currentCard?.questionId ? String(state.currentCard.questionId) : null;
     setBusy(true);
     try {
       const res = await placeHitsterCard(activity.id, position);
@@ -107,6 +121,7 @@ export default function HitsterPlay({ activity, participant }) {
     } catch (e) {
       if (!disposedRef.current) setError(e?.message);
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }

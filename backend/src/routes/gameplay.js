@@ -233,15 +233,45 @@ router.post('/:id/answers', asyncHandler(async (req, res) => {
 router.get('/:id/my-answers', asyncHandler(async (req, res) => {
   const participant = await resolveParticipantForActivity(req, req.params.id);
   const answers = await Answer.find({ participantId: participant._id }).lean();
-  res.json(answers.map((a) => ({
-    questionId: idStr(a.questionId),
-    selectedOptionId: a.selectedOptionId ? idStr(a.selectedOptionId) : null,
-    freeText: a.freeText ?? null,
-    artistText: a.artistText ?? null,
-    year: a.guessedYear ?? null,
-    isCorrect: a.isCorrect,
-    awardedPoints: a.awardedPoints,
-  })));
+
+  // For a music quiz, include the per-track reveal (correct song/artist/year, ✓/✗,
+  // ⏱) so the post-answer feedback survives a reload — GET /results returns nothing
+  // for music, and only the live submit() response carried these fields before.
+  const activity = await Activity.findById(req.params.id).select('type speedScoring').lean();
+  const isMusic = activity && activity.type === ActivityType.MusicQuiz;
+  let qmap = null;
+  if (isMusic) {
+    const qs = await Question.find({ activityId: req.params.id })
+      .select('acceptedFreeTextAnswer acceptedArtist releaseYear points playStartedUtc').lean();
+    qmap = new Map(qs.map((q) => [idStr(q), q]));
+  }
+
+  res.json(answers.map((a) => {
+    const dto = {
+      questionId: idStr(a.questionId),
+      selectedOptionId: a.selectedOptionId ? idStr(a.selectedOptionId) : null,
+      freeText: a.freeText ?? null,
+      artistText: a.artistText ?? null,
+      year: a.guessedYear ?? null,
+      isCorrect: a.isCorrect,
+      awardedPoints: a.awardedPoints,
+    };
+    const q = isMusic && qmap ? qmap.get(idStr(a.questionId)) : null;
+    if (q) {
+      dto.songCorrect = scoring.matches(a.freeText, q.acceptedFreeTextAnswer);
+      dto.artistCorrect = scoring.matches(a.artistText, q.acceptedArtist);
+      dto.correctSong = q.acceptedFreeTextAnswer ?? null;
+      dto.correctArtist = q.acceptedArtist ?? null;
+      dto.correctYear = q.releaseYear ?? null;
+      dto.yearPoints = scoring.scoreYear(a.guessedYear, q.releaseYear, q.points);
+      if (activity.speedScoring && q.playStartedUtc && a.submittedUtc && a.awardedPoints > 0) {
+        dto.elapsedSeconds = Math.max(0, Math.floor(
+          (new Date(a.submittedUtc).getTime() - new Date(q.playStartedUtc).getTime()) / 1000,
+        ));
+      }
+    }
+    return dto;
+  }));
 }));
 
 // POST /api/activities/:id/music/maybe-finish — host nudge to finish a MusicQuiz
@@ -299,13 +329,17 @@ async function recordScore(activity, req) {
     throw new RuleViolation('That value is out of range.');
   }
 
-  // Time / length are single measurements — a new reading replaces the old (per
-  // player in per-player mode, else the whole team's).
-  if ([Measurement.TimeSeconds, Measurement.Millimetres].includes(activity.measurement)) {
-    const filter = { activityId: activity._id, participantId: target._id };
-    if (activity.scoreEntryMode === ScoreEntryMode.PerPlayer) filter.userId = scoredByUserId;
-    await ScoreEntry.deleteMany(filter);
+  // Replace prior reading(s) so a value can't be padded by re-submitting:
+  //  - time/length is a SINGLE reading per team/player → replace all of theirs;
+  //  - point scores are per-round → replace just this (participant, round[, player]),
+  //    so re-submitting a round overwrites it instead of stacking (otherwise a player
+  //    could spam round 1 to inflate their own team's total without limit).
+  const dedupe = { activityId: activity._id, participantId: target._id };
+  if (activity.scoreEntryMode === ScoreEntryMode.PerPlayer) dedupe.userId = scoredByUserId;
+  if (![Measurement.TimeSeconds, Measurement.Millimetres].includes(activity.measurement)) {
+    dedupe.round = round; // multi-round point games still sum ACROSS distinct rounds
   }
+  await ScoreEntry.deleteMany(dedupe);
 
   const note = req.note && String(req.note).trim() ? String(req.note).trim() : null;
   const entry = await ScoreEntry.create({

@@ -314,6 +314,7 @@ export default function Manage() {
           <span className="pill accent" style={{ fontSize: '1rem' }}>{activity.joinCode}</span>
           <button type="button" className="btn ghost sm" onClick={copyCode}>{copied ? 'Kopierad ✓' : 'Kopiera kod'}</button>
           <button type="button" className="btn ghost sm" onClick={() => guardedGo(`/a/${activity.id}`)}>Öppna spelarvy</button>
+          <a className="btn ghost sm" href={`/cast/${activity.id}`} target="_blank" rel="noopener noreferrer" title="Öppna storbildsvyn på en projektor/TV">📺 Casta</a>
         </div>
 
         <div className="row wrap">

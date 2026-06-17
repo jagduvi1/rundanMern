@@ -5,7 +5,7 @@
 // decision tree + supporting chrome + the realtime/poll self-heal that makes
 // "host pressed Start, every phone advances" work.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { getActivity, getScoreboard } from '../api/activities';
 import { getEvent } from '../api/events';
 import { listParticipants, joinActivityAsMember } from '../api/participants';
@@ -39,6 +39,7 @@ import PhotoWall from '../components/PhotoWall';
 import MusicHostPanel from '../components/MusicHostPanel';
 import HitsterPlay from '../components/HitsterPlay';
 import HitsterHostPanel from '../components/HitsterHostPanel';
+import ArcadePlay from '../components/ArcadePlay';
 
 const POLL_MS = 4000;
 const PSESSION_KEY = (id) => `rundan.psession.${id}`;
@@ -74,6 +75,18 @@ export default function Activity() {
   const { id } = useParams();
   const { toast, show } = useToast();
 
+  // Arcade is an opt-in presentation (?arcade=1), not a separate game type — it
+  // re-renders an eligible Musikquiz as the full-screen neon player.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const arcade = searchParams.get('arcade') === '1';
+  const setArcade = useCallback((on) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (on) next.set('arcade', '1'); else next.delete('arcade');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
   const [activity, setActivity] = useState(null);
   const [board, setBoard] = useState(null);
   const [participants, setParticipants] = useState([]);
@@ -90,7 +103,10 @@ export default function Activity() {
   const activityRef = useRef(null);
   const disposedRef = useRef(false);
   const pollRef = useRef(null);
+  const sessionRef = useRef(null);     // latest session for the socket handlers
+  const wasInBoardRef = useRef(false); // we have appeared on the scoreboard (kick detection)
   activityRef.current = activity;
+  sessionRef.current = session;
 
   useDocumentTitle(`${activity?.title || 'Aktivitet'} · GameDo`);
 
@@ -182,6 +198,21 @@ export default function Activity() {
       if (!active) return;
       setBoard(b);
       setScoreVersion((v) => v + 1);
+      // Kick detection: once we've appeared on the board, our later ABSENCE means the
+      // host removed us — clear our identity so we fall back to the join/finished view
+      // instead of being stranded on a dead play screen. Gated on having been present
+      // first, so a not-yet-scored board never false-triggers.
+      const pid = sessionRef.current?.participantId;
+      if (pid && Array.isArray(b?.entries)) {
+        if (b.entries.some((e) => String(e.participantId) === String(pid))) {
+          wasInBoardRef.current = true;
+        } else if (wasInBoardRef.current) {
+          setParticipantToken(id, null);
+          saveSession(id, null);
+          setSession(null);
+          wasInBoardRef.current = false;
+        }
+      }
       if (activityRef.current?.status === ActivityStatus.Finished) loadSlap();
     };
     const onStatusChanged = async () => {
@@ -286,24 +317,51 @@ export default function Activity() {
   // activity yet — e.g. the activity opened AFTER they claimed — join as their
   // roster team using that token, instead of showing the free-name JoinPanel
   // (which would prompt for a name and double-list them as a solo participant).
-  const autoJoinRef = useRef(false);
-  useEffect(() => { autoJoinRef.current = false; }, [id]); // retry once per activity
+  const [autoJoining, setAutoJoining] = useState(false);      // a member-join is in flight
+  const [autoJoinFailed, setAutoJoinFailed] = useState(false); // gave up (genuinely not on a team)
+  const autoJoinDoneRef = useRef(false);     // success OR not-on-team → stop
+  const autoJoinInflightRef = useRef(false); // prevent concurrent attempts
   useEffect(() => {
-    if (loading || session || viewer || autoJoinRef.current) return undefined;
-    const eventId = activity?.eventId;
+    autoJoinDoneRef.current = false; autoJoinInflightRef.current = false; setAutoJoinFailed(false);
+  }, [id]);
+
+  // Does this device hold a claimed roster identity for this activity's event?
+  const isRosterMemberDevice = useCallback(() => {
+    const eventId = activityRef.current?.eventId;
+    return !!(eventId && getMemberToken(eventId) && getEventUserId(eventId));
+  }, []);
+
+  const tryAutoJoinAsMember = useCallback(async () => {
+    if (autoJoinInflightRef.current || autoJoinDoneRef.current) return;
+    const eventId = activityRef.current?.eventId;
+    if (!eventId || !getMemberToken(eventId) || !getEventUserId(eventId)) return;
+    autoJoinInflightRef.current = true;
+    setAutoJoining(true);
+    setAutoJoinFailed(false);
+    try {
+      const res = await joinActivityAsMember(id, eventId);
+      if (res?.token) { autoJoinDoneRef.current = true; await onJoined(res.participant, res.token); }
+    } catch (e) {
+      // 403/409 = genuinely not on a team for this activity → stop & show retry. A
+      // transient error leaves done=false so the 4s poll re-runs this and retries —
+      // never silently dropping a roster member onto the free-name (double-list) path.
+      if (e?.status === 403 || e?.status === 409) { autoJoinDoneRef.current = true; setAutoJoinFailed(true); }
+    } finally {
+      autoJoinInflightRef.current = false;
+      setAutoJoining(false);
+    }
+  }, [id, onJoined]);
+
+  const retryAutoJoin = useCallback(() => {
+    autoJoinDoneRef.current = false; setAutoJoinFailed(false); tryAutoJoinAsMember();
+  }, [tryAutoJoinAsMember]);
+
+  useEffect(() => {
+    if (loading || session || viewer) return;
     const st = activity?.status;
-    if (!eventId || (st !== ActivityStatus.Open && st !== ActivityStatus.Live)) return undefined;
-    if (!getMemberToken(eventId) || !getEventUserId(eventId)) return undefined; // not a claimed member
-    autoJoinRef.current = true;
-    let alive = true;
-    (async () => {
-      try {
-        const res = await joinActivityAsMember(id, eventId);
-        if (alive && res?.token) await onJoined(res.participant, res.token);
-      } catch { /* not on a team / not open — fall back to the JoinPanel */ }
-    })();
-    return () => { alive = false; };
-  }, [loading, session, viewer, activity, id, onJoined]);
+    if (st !== ActivityStatus.Open && st !== ActivityStatus.Live) return;
+    if (isRosterMemberDevice()) tryAutoJoinAsMember();
+  }, [loading, session, viewer, activity, isRosterMemberDevice, tryAutoJoinAsMember]);
 
   const watch = useCallback(() => {
     if (activity?.eventId) { setViewer(activity.eventId, true); setViewerState(true); }
@@ -331,6 +389,26 @@ export default function Activity() {
           <p className="muted">Ingen aktivitet med den koden eller id:t.</p>
           <Link className="btn" to="/events">Tillbaka till evenemang</Link>
         </div>
+      </>
+    );
+  }
+
+  // ── Arcade presentation (opt-in, full-bleed) ────────────────────────────────
+  // An eligible Musikquiz renders as the neon arcade player instead of the normal
+  // chrome. Returned BEFORE the page chrome so the 100dvh view owns the screen and
+  // the page's <Scoreboard> isn't double-mounted (ArcadePlay reads the live board
+  // this page keeps in sync). The page's socket/poll effects keep running above.
+  const arcadeEligible = activity.type === ActivityType.MusicQuiz && !activity.hitsterMode;
+  if (arcade && arcadeEligible && session && !viewer && activity.status !== ActivityStatus.Draft) {
+    return (
+      <>
+        {toast}
+        <ArcadePlay
+          activity={activity}
+          participant={session}
+          board={board}
+          onExit={() => setArcade(false)}
+        />
       </>
     );
   }
@@ -364,6 +442,16 @@ export default function Activity() {
           <span className="grow" />
           <LiveIndicator state={live} />
         </div>
+        {(canManage || (arcadeEligible && session && !viewer && activity.status !== ActivityStatus.Draft)) ? (
+          <div className="row wrap" style={{ gap: 8 }}>
+            {arcadeEligible && session && !viewer && activity.status !== ActivityStatus.Draft ? (
+              <button type="button" className="btn soft sm" onClick={() => setArcade(true)}>✨ Arkadläge</button>
+            ) : null}
+            {canManage ? (
+              <Link className="btn ghost sm" to={`/cast/${activity.id}`} target="_blank" rel="noopener">📺 Casta</Link>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {(activity.imageUrl || activity.description) ? (
@@ -392,6 +480,7 @@ export default function Activity() {
       {renderCentral({
         activity, session, viewer, participants, board, scoreVersion,
         canManage, participantId, onJoined, watch, stopViewing,
+        isRosterMember: isRosterMemberDevice(), autoJoining, autoJoinFailed, onRetryJoin: retryAutoJoin,
       })}
 
       {canManage && activity.type === ActivityType.MusicQuiz && activity.status !== ActivityStatus.Draft ? (
@@ -418,6 +507,7 @@ function renderCentral(ctx) {
   const {
     activity, session, viewer, participants, scoreVersion,
     canManage, onJoined, watch, stopViewing,
+    isRosterMember, autoJoining, autoJoinFailed, onRetryJoin,
   } = ctx;
   const { status, type } = activity;
   const usesQuestions = type === ActivityType.Quiz || type === ActivityType.Tipspromenad;
@@ -449,6 +539,29 @@ function renderCentral(ctx) {
   // 3) Not joined (not a viewer)
   if (!session) {
     if (status === ActivityStatus.Open || status === ActivityStatus.Live) {
+      // A roster member auto-joins as their team — NEVER show the free-name JoinPanel
+      // to them (it would create a duplicate solo participant). Show a connecting
+      // spinner (auto-join retries on the 4s poll) or a retry if it gave up.
+      if (isRosterMember) {
+        return (
+          <div className="card stack center">
+            {autoJoinFailed ? (
+              <>
+                <p className="muted">Kunde inte ansluta dig till den här aktiviteten — du kanske inte är med i ett lag här.</p>
+                <button type="button" className="btn sm" onClick={onRetryJoin}>Försök igen</button>
+              </>
+            ) : (
+              <>
+                <span className="spinner" style={{ margin: '.5rem auto' }} />
+                <p className="muted">Ansluter dig som din spelare…</p>
+              </>
+            )}
+            {activity.eventId ? (
+              <button type="button" className="btn ghost sm" onClick={watch}>Bara titta</button>
+            ) : null}
+          </div>
+        );
+      }
       return (
         <>
           <JoinPanel activity={activity} onJoined={onJoined} />
@@ -502,7 +615,9 @@ function renderCentral(ctx) {
       case ActivityType.MapPin: return <MapPinPlay activity={activity} participant={session} />;
       case ActivityType.MusicQuiz: return activity.hitsterMode
         ? <HitsterPlay activity={activity} participant={session} />
-        : <MusicQuizPlay activity={activity} participant={session} />;
+        // The host answers tap-the-artist from the MusicHostPanel (rendered below);
+        // don't also mount the player card for them (two competing answer surfaces).
+        : (canManage ? null : <MusicQuizPlay activity={activity} participant={session} />);
       case ActivityType.Memory: return <MemoryPlay activity={activity} participant={session} />;
       default: return <BouleBoard activity={activity} participant={session} participants={participants} canManage={canManage} />;
     }

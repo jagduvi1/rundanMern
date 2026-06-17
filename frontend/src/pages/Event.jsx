@@ -38,7 +38,7 @@ import {
   getSocket, joinEvent as sockJoinEvent, leaveEvent, joinActivity as sockJoinActivity,
 } from '../utils/socket';
 import {
-  saveLastEventId, getEventName, saveEventName, getEventUserId, saveEventUserId,
+  saveLastEventId, getEventName, saveEventName, getEventUserId, saveEventUserId, saveActivitySession,
   isViewer as readViewer, getViewerName, getViewerToken, setViewer,
   isProxying, getProxy, setProxy, isPreview, setPreview,
 } from '../utils/appState';
@@ -1994,13 +1994,23 @@ function persistClaim(eventId, res, activities) {
   // activities are re-set from res.slots below; any others re-join on demand.
   const prev = getEventUserId(eventId);
   if (prev && res.userId && String(prev) !== String(res.userId)) {
-    for (const a of activities || []) setParticipantToken(a.id, null);
+    // Forget the previous identity's per-activity token AND session meta, so a
+    // shared device doesn't keep highlighting / playing as the old player.
+    for (const a of activities || []) {
+      setParticipantToken(a.id, null);
+      saveActivitySession(a.id, null);
+    }
   }
   saveEventUserId(eventId, res.userId);
   saveEventName(eventId, res.displayName);
   if (res.memberToken) setMemberToken(eventId, res.memberToken);
   for (const slot of res.slots || []) {
     if (slot.token) setParticipantToken(slot.activityId, slot.token);
+    // Persist this slot's session meta too, so the Activity page knows our
+    // participantId (the "me" highlight) + team name without re-joining there.
+    saveActivitySession(slot.activityId, {
+      id: slot.participantId, participantId: slot.participantId, displayName: slot.teamName,
+    });
   }
 }
 function persistJoin(eventId, res) {

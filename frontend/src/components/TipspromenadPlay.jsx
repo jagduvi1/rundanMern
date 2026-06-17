@@ -107,6 +107,9 @@ export default function TipspromenadPlay({ activity, participant }) {
     const dist = distances.get(String(q.id));
     return dist != null && dist <= radiusOf(q);
   };
+  // Location denied / unavailable → let the player open & answer stations manually
+  // (the banner promises this; the server has no geofence, so it stays authoritative).
+  const geoBlocked = !!geoError;
   const atNearest = nearestId != null
     && distances.get(String(nearestId)) != null
     && distances.get(String(nearestId)) <= radiusOf(questions.find((x) => String(x.id) === String(nearestId)) || {});
@@ -127,8 +130,9 @@ export default function TipspromenadPlay({ activity, participant }) {
   function open(qId) {
     const q = questions.find((x) => String(x.id) === String(qId));
     if (!q) return;
-    // Only opens once you're within range (or already answered).
-    if (!answered.has(String(qId)) && !withinRadius(q)) return;
+    // Only opens once you're within range (or already answered) — unless location
+    // is unavailable, in which case proximity can't be checked so we allow it.
+    if (!answered.has(String(qId)) && !withinRadius(q) && !geoBlocked) return;
     setSelectedId(qId);
     setSelectedOptionId(null);
     setFreeText('');
@@ -213,7 +217,7 @@ export default function TipspromenadPlay({ activity, participant }) {
         <ul className="stack" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
           {located.map((q) => {
             const done = answered.has(String(q.id));
-            const canOpen = done || withinRadius(q);
+            const canOpen = done || withinRadius(q) || geoBlocked;
             return (
               <li key={q.id} className="row" style={{ borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
                 <span className="grow"><b>Station {stationNumber(q)}</b></span>
