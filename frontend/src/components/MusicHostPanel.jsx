@@ -2,7 +2,9 @@
 // The React port of rundan's MusicHostPanel.razor. Lists the tracks; each "Start"
 // reveals a track to players (POST .../music/start/:qid → emits MusicTrackStarted +
 // starts a countdown) and, if speedScoring is on, begins a fastest-to-answer round.
-// When a Spotify connection exists it can play full tracks in-app via the Web
+// Starting a track does NOT play it — playback is a separate "▶ Spela" action, so
+// the host can start the timer first and then start the song (matching rundan).
+// When a Spotify connection exists "▶ Spela" plays the full track in-app via the Web
 // Playback SDK (useSpotifyPlayer, Premium required); otherwise the "Spotify ↗" link
 // opens the track. Host-only — mounted by Activity.jsx behind the canManage check.
 //
@@ -96,8 +98,11 @@ export default function MusicHostPanel({ activity }) {
   }, []);
 
   async function start(t) {
-    // Unlock audio WITHIN this click gesture before any await (browser autoplay
-    // policy) — otherwise the later play() returns 204 but no sound comes out.
+    // "Starta" only reveals the track to players and starts the countdown — it does
+    // NOT play the song. The host plays it separately with "▶ Spela" (same flow as
+    // the original rundan: start the timer first, then start the song). We still
+    // pre-warm audio within this click gesture so the later "▶ Spela" click is
+    // already unlocked under the browser's autoplay policy.
     if (canPlayInApp) activate();
     setBusy(true);
     setError(null);
@@ -110,9 +115,6 @@ export default function MusicHostPanel({ activity }) {
         window: res?.windowSeconds || 30,
       });
       ensureTicking();
-      if (t.spotifyUrl && t.spotifyUrl.trim()) {
-        playTrack(t);
-      }
     } catch (e) {
       setError(e?.message || 'Kunde inte starta spåret.');
     } finally {
