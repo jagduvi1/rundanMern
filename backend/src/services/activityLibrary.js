@@ -43,6 +43,17 @@ async function cloneActivity(source, base) {
       .map((c) => ({ order: c.order, name: c.name })),
     memoryCards: (source.memoryCards || []).slice().sort((a, b) => a.order - b.order)
       .map((c) => ({ order: c.order, text: c.text })),
+    // Source playlists are authored config — carry them so a copied music quiz can
+    // still import more tracks (importing uses the NEW owner's Spotify connection).
+    musicPlaylists: (source.musicPlaylists || []).map((p) => ({
+      playlistId: p.playlistId,
+      url: p.url,
+      title: p.title,
+      ownerName: p.ownerName,
+      imageUrl: p.imageUrl,
+      trackCount: p.trackCount,
+      description: p.description,
+    })),
     mapCities: [],
     ...base, // eventId/order/status/inLibrary/isPublic/owner — caller decides
   });

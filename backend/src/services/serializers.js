@@ -36,6 +36,17 @@ function activityDerived(a) {
 }
 
 const courtDto = (c) => ({ id: idStr(c), order: c.order, name: c.name });
+// A source playlist saved on a MusicQuiz (display metadata + ids for removal).
+const musicPlaylistDto = (p) => ({
+  id: idStr(p),
+  playlistId: p.playlistId,
+  url: p.url ?? null,
+  title: p.title ?? null,
+  ownerName: p.ownerName ?? null,
+  imageUrl: p.imageUrl ?? null,
+  trackCount: p.trackCount ?? null,
+  description: p.description ?? null,
+});
 
 // extra = { canManage, isTeamBased, participantCount, playerCount, teamCount, questionCount }
 function activityDto(a, extra = {}) {
@@ -89,6 +100,7 @@ function activityDto(a, extra = {}) {
     copiedFromId: a.copiedFromId ? idStr(a.copiedFromId) : null,
     courtLabel: a.courtLabel,
     courts: (a.courts || []).map(courtDto),
+    musicPlaylists: (a.musicPlaylists || []).map(musicPlaylistDto),
     participantCount: extra.participantCount ?? 0,
     playerCount: extra.playerCount ?? 0,
     teamCount: extra.teamCount ?? 0,
@@ -238,6 +250,7 @@ module.exports = {
   accountSummaryDto,
   activityDerived,
   courtDto,
+  musicPlaylistDto,
   activityDto,
   participantDto,
   answerOptionDto,

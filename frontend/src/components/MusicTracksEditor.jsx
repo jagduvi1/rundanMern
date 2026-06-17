@@ -19,7 +19,10 @@ import { useEffect, useRef, useState } from 'react';
 import {
   getAdminQuestions, createQuestion, updateQuestion, deleteQuestion,
 } from '../api/questions';
-import { lookupTrack, importPlaylist } from '../api/music';
+import {
+  lookupTrack, addPlaylist, removePlaylist, importPlaylist,
+} from '../api/music';
+import { getActivity } from '../api/activities';
 import { useAuth } from '../contexts/AuthContext';
 import { QuestionKind } from '../config/enums';
 import Spinner from './Spinner';
@@ -39,7 +42,10 @@ export default function MusicTracksEditor({ activity, onChanged }) {
   const [fillAllNote, setFillAllNote] = useState(null);
   const [fillNotes, setFillNotes] = useState({}); // { [id]: string }
 
-  const [importUrl, setImportUrl] = useState('');
+  // Source playlists saved on the activity (round-robin import + "add more later").
+  const [playlists, setPlaylists] = useState(activity?.musicPlaylists || []);
+  const [playlistUrl, setPlaylistUrl] = useState('');
+  const [addingPlaylist, setAddingPlaylist] = useState(false);
   const [importCount, setImportCount] = useState(10);
   const [importing, setImporting] = useState(false);
   const [importNote, setImportNote] = useState(null);
@@ -50,14 +56,21 @@ export default function MusicTracksEditor({ activity, onChanged }) {
     return () => { aliveRef.current = false; };
   }, []);
 
-  // Load once per activity, revealing the real answers.
+  // Load once per activity, revealing the real answers. Also pull the activity
+  // fresh so the saved playlists are current even after a remount (the parent
+  // re-keys this editor without refetching the activity prop).
   useEffect(() => {
     let alive = true;
     setLoading(true);
     (async () => {
       try {
-        const list = await getAdminQuestions(activity.id, true);
-        if (alive) setTracks(list || []);
+        const [list, fresh] = await Promise.all([
+          getAdminQuestions(activity.id, true),
+          getActivity(activity.id).catch(() => null),
+        ]);
+        if (!alive) return;
+        setTracks(list || []);
+        if (fresh?.musicPlaylists) setPlaylists(fresh.musicPlaylists);
       } catch (e) {
         if (alive) setError(e?.message || 'Kunde inte ladda spåren.');
       } finally {
@@ -199,22 +212,61 @@ export default function MusicTracksEditor({ activity, onChanged }) {
     }
   }
 
+  // Remember a source playlist on the quiz (fetches its title/cover/track count).
+  // Adding does NOT import tracks — stage several, then import round-robin below.
+  async function addPlaylistSource() {
+    if (!playlistUrl.trim()) return;
+    setAddingPlaylist(true);
+    setImportNote(null);
+    setError(null);
+    try {
+      const res = await addPlaylist(activity.id, playlistUrl.trim());
+      if (aliveRef.current) {
+        setPlaylists(res?.playlists || []);
+        setPlaylistUrl('');
+      }
+    } catch (e) {
+      setError(e?.message || 'Kunde inte lägga till spellistan.');
+    } finally {
+      setAddingPlaylist(false);
+    }
+  }
+
+  async function removePlaylistSource(p) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await removePlaylist(activity.id, p.playlistId);
+      if (aliveRef.current) setPlaylists(res?.playlists || []);
+    } catch (e) {
+      setError(e?.message || 'Kunde inte ta bort spellistan.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Import `count` tracks, round-robin across all saved playlists (server skips
+  // tracks already added, so importing again pulls fresh songs).
   async function runImport() {
-    if (!importUrl.trim()) return;
+    if (playlists.length === 0) return;
     setImporting(true);
     setImportNote(null);
     setError(null);
     try {
-      const result = await importPlaylist(activity.id, importUrl.trim(), importCount);
+      // Coerce to a sane 1–50 even if the field was cleared (avoids a 0/NaN count).
+      const n = Math.min(50, Math.max(1, Math.round(Number(importCount) || 10)));
+      const result = await importPlaylist(activity.id, n);
       const list = await getAdminQuestions(activity.id, true);
       if (aliveRef.current) {
         setTracks(list || []);
         setImportNote((result?.imported || 0) > 0
           ? `La till ${result.imported} spår — kontrollera svaren nedan och spara de du justerar.`
-          : 'Inget lades till.');
-        setImportUrl('');
+          : 'Inget nytt lades till (spåren finns redan, eller spellistorna gick inte att läsa).');
       }
-      onChanged?.();
+      // NOTE: deliberately NOT calling onChanged() here — it re-keys/remounts this
+      // editor (Manage bumps qVersion), which would discard the success note above.
+      // This editor already refreshes its own tracks + playlists, so a remount is
+      // unnecessary for the import flow.
     } catch (e) {
       setError(e?.message || 'Importen misslyckades.');
     } finally {
@@ -248,24 +300,54 @@ export default function MusicTracksEditor({ activity, onChanged }) {
 
       {spotifyConfigured ? (
         <div className="card stack" style={{ background: 'var(--accent-soft, #faf7f2)' }}>
-          <b>Importera från en Spotify-spellista</b>
+          <b>Importera från Spotify-spellistor</b>
           <p className="muted small" style={{ margin: 0 }}>
-            Klistra in en spellistelänk och välj hur många spår som ska läggas till. Vi tar ett slumpat urval och autofyller varje spårs titel, artist och utgivningsår — sedan kan du putsa dem nedan.
+            Lägg till en eller flera spellistor och importera sedan ett antal spår. Med flera spellistor varvas urvalet jämnt mellan dem (round robin). Vi autofyller varje spårs titel, artist och utgivningsår — putsa dem nedan. Spellistorna sparas på aktiviteten, så du kan importera fler spår senare, även efter en återställning eller om du tagit bort spår.
           </p>
           <p className="muted small" style={{ margin: 0 }}>
             Fungerar med dina egna spellistor (publika eller privata) och andras publika eller delade. Spotifys egna redaktionella spellistor (de med <code>37i9…</code>) kan inte läsas. Om en privat spellista inte laddas, sätt quizets autofyllningskälla till Spotify-kontot som äger den.
           </p>
+
           <div className="row wrap" style={{ gap: '.4rem', alignItems: 'flex-end' }}>
             <div className="field grow" style={{ margin: 0, minWidth: 220 }}>
               <label className="muted small">Spellistelänk</label>
-              <input type="text" placeholder="https://open.spotify.com/playlist/…" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} />
+              <input type="text" placeholder="https://open.spotify.com/playlist/…" value={playlistUrl} onChange={(e) => setPlaylistUrl(e.target.value)} />
             </div>
+            <button type="button" className="btn sm" onClick={addPlaylistSource} disabled={busy || addingPlaylist || !playlistUrl.trim()}>
+              {addingPlaylist ? 'Lägger till…' : 'Lägg till spellista'}
+            </button>
+          </div>
+
+          {playlists.length > 0 ? (
+            <div className="stack" style={{ gap: '.4rem' }}>
+              {playlists.map((p) => (
+                <div key={p.playlistId} className="row" style={{ gap: '.5rem', alignItems: 'center' }}>
+                  {p.imageUrl ? (
+                    <img src={p.imageUrl} alt="" width={40} height={40} style={{ borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
+                  ) : null}
+                  <div className="grow" style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {p.url ? <a href={p.url} target="_blank" rel="noopener noreferrer">{p.title || 'Spellista'}</a> : (p.title || 'Spellista')}
+                    </div>
+                    <div className="muted small">
+                      {p.ownerName ? `${p.ownerName} · ` : ''}{p.trackCount != null ? `${p.trackCount} spår` : '—'}
+                    </div>
+                  </div>
+                  <button type="button" className="btn ghost sm danger" onClick={() => removePlaylistSource(p)} disabled={busy}>Ta bort</button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted small" style={{ margin: 0 }}>Inga spellistor tillagda än.</p>
+          )}
+
+          <div className="row wrap" style={{ gap: '.4rem', alignItems: 'flex-end' }}>
             <div className="field" style={{ margin: 0 }}>
-              <label className="muted small">Hur många</label>
-              <input type="number" min={1} max={50} style={{ width: 90 }} value={importCount} onChange={(e) => setImportCount(Number(e.target.value))} />
+              <label className="muted small">Hur många spår</label>
+              <input type="number" min={1} max={50} style={{ width: 110 }} value={importCount} onChange={(e) => setImportCount(Number(e.target.value))} />
             </div>
-            <button type="button" className="btn sm" onClick={runImport} disabled={busy || importing || !importUrl.trim()}>
-              {importing ? 'Importerar…' : 'Importera'}
+            <button type="button" className="btn sm" onClick={runImport} disabled={busy || importing || playlists.length === 0}>
+              {importing ? 'Importerar…' : (playlists.length > 1 ? 'Importera spår (varvat)' : 'Importera spår')}
             </button>
           </div>
           {importNote ? <p className="muted small" style={{ margin: 0 }}>{importNote}</p> : null}
