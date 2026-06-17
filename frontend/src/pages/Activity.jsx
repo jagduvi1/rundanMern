@@ -8,9 +8,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getActivity, getScoreboard } from '../api/activities';
 import { getEvent } from '../api/events';
-import { listParticipants } from '../api/participants';
+import { listParticipants, joinActivityAsMember } from '../api/participants';
 import { getActivitySlap } from '../api/eventSocial';
-import { getParticipantToken, setParticipantToken, ApiError } from '../api/client';
+import { getParticipantToken, setParticipantToken, getMemberToken, ApiError } from '../api/client';
 import { ActivityType, ActivityStatus, SlapState } from '../config/enums';
 import { ServerEvents } from '../config/socketEvents';
 import { getSocket, joinActivity as sockJoinActivity, leaveActivity } from '../utils/socket';
@@ -280,6 +280,30 @@ export default function Activity() {
     await Promise.all([refreshParticipants(), refreshScoreboard()]);
     try { const a = await getActivity(id); if (a) setActivity(a); } catch { /* keep */ }
   }, [id, refreshParticipants, refreshScoreboard]);
+
+  // Auto-join as a claimed roster identity: if this device already claimed a player
+  // for the event (it holds the event member token) but has no session for THIS
+  // activity yet — e.g. the activity opened AFTER they claimed — join as their
+  // roster team using that token, instead of showing the free-name JoinPanel
+  // (which would prompt for a name and double-list them as a solo participant).
+  const autoJoinRef = useRef(false);
+  useEffect(() => { autoJoinRef.current = false; }, [id]); // retry once per activity
+  useEffect(() => {
+    if (loading || session || viewer || autoJoinRef.current) return undefined;
+    const eventId = activity?.eventId;
+    const st = activity?.status;
+    if (!eventId || (st !== ActivityStatus.Open && st !== ActivityStatus.Live)) return undefined;
+    if (!getMemberToken(eventId) || !getEventUserId(eventId)) return undefined; // not a claimed member
+    autoJoinRef.current = true;
+    let alive = true;
+    (async () => {
+      try {
+        const res = await joinActivityAsMember(id, eventId);
+        if (alive && res?.token) await onJoined(res.participant, res.token);
+      } catch { /* not on a team / not open — fall back to the JoinPanel */ }
+    })();
+    return () => { alive = false; };
+  }, [loading, session, viewer, activity, id, onJoined]);
 
   const watch = useCallback(() => {
     if (activity?.eventId) { setViewer(activity.eventId, true); setViewerState(true); }
