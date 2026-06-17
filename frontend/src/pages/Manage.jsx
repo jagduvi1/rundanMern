@@ -14,7 +14,7 @@ import { listConnections } from '../api/spotify';
 import { ApiError } from '../api/client';
 import {
   ActivityType, ActivityStatus, Measurement, ScoringMode, ScoreEntryMode,
-  MatchFormat, TournamentScoring,
+  MatchFormat, TournamentScoring, ImpostureScoring,
 } from '../config/enums';
 import { typeLabel, rulesSummary } from '../utils/format';
 import { useAuth } from '../contexts/AuthContext';
@@ -30,6 +30,7 @@ import QuestionEditor from '../components/QuestionEditor';
 import StationsEditor from '../components/StationsEditor';
 import MusicTracksEditor from '../components/MusicTracksEditor';
 import MemoryCardsEditor from '../components/MemoryCardsEditor';
+import ImpostureWordsEditor from '../components/ImpostureWordsEditor';
 
 const TYPE_OPTIONS = [
   [ActivityType.Quiz, 'Quiz'],
@@ -40,6 +41,7 @@ const TYPE_OPTIONS = [
   [ActivityType.MapPin, 'Kartnål'],
   [ActivityType.MusicQuiz, 'Musikquiz'],
   [ActivityType.Memory, 'Memory'],
+  [ActivityType.Imposture, 'Imposture'],
 ];
 
 // The host's next status actions, given the current status.
@@ -254,6 +256,22 @@ export default function Manage() {
   // Memory's "scored by" saves immediately (mirrors the .razor @bind:after).
   const saveMemoryMeasurement = async (v) => {
     const next = { ...f, measurement: v };
+    setF(next);
+    setBusy(true);
+    try {
+      const a = await updateActivity(id, buildBody(next));
+      setActivity(a);
+      setF(fieldsFrom(a));
+    } catch (err) {
+      show(err?.message || 'Kunde inte spara.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Imposture config (impostor count / category hint / scoring) saves immediately.
+  const saveImpostureConfig = async (partial) => {
+    const next = { ...f, ...partial };
     setF(next);
     setBusy(true);
     try {
@@ -574,6 +592,46 @@ export default function Manage() {
         </>
       ) : null}
 
+      {/* Imposture */}
+      {activity.type === ActivityType.Imposture ? (
+        <>
+          <div className="card stack">
+            <h2 style={{ margin: 0 }}>Imposture-inställningar</h2>
+            <div className="field">
+              <label htmlFor="imp-count">Antal impostorer</label>
+              <input
+                id="imp-count" type="number" min={1} max={5} style={{ width: 100 }}
+                value={f.impostorCount}
+                onChange={(e) => saveImpostureConfig({ impostorCount: Math.max(1, Math.min(5, Number(e.target.value) || 1)) })}
+              />
+            </div>
+            <label className="row" style={{ gap: '.5rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox" checked={!!f.revealCategoryToImpostor}
+                onChange={(e) => saveImpostureConfig({ revealCategoryToImpostor: e.target.checked })}
+              />
+              <span>Visa kategorin för impostorn (en liten ledtråd)</span>
+            </label>
+            <div className="field">
+              <label htmlFor="imp-scoring">Poängsystem</label>
+              <select
+                id="imp-scoring" value={f.impostureScoring}
+                onChange={(e) => saveImpostureConfig({ impostureScoring: Number(e.target.value) })}
+              >
+                <option value={ImpostureScoring.CatchersOnly}>Bara rätt röst ger poäng</option>
+                <option value={ImpostureScoring.Standard}>Rätt röst + oavslöjad impostor får poäng</option>
+                <option value={ImpostureScoring.StandardPlusGuess}>…plus: avslöjad impostor får gissa ordet för bonus</option>
+              </select>
+            </div>
+          </div>
+          {isDraft ? (
+            <ImpostureWordsEditor key={`imposture-${qVersion}`} activity={activity} onChanged={onEditorChanged} />
+          ) : (
+            <div className="card muted">Orden är låsta tills aktiviteten är ett utkast igen.</div>
+          )}
+        </>
+      ) : null}
+
       <ConfirmDialog
         open={confirm === 'delete'}
         title="Ta bort aktivitet?"
@@ -779,6 +837,9 @@ function fieldsFrom(a) {
     hitsterCardsToWin: a.hitsterCardsToWin ?? 10,
     spotifyConnectionId: a.spotifyConnectionId ?? '0',
     hideQuestionsFromHost: !!a.hideQuestionsFromHost,
+    impostorCount: a.impostorCount ?? 1,
+    revealCategoryToImpostor: a.revealCategoryToImpostor !== false,
+    impostureScoring: a.impostureScoring ?? ImpostureScoring.Standard,
     isPublic: !!a.isPublic,
     latitude: a.latitude ?? null,
     longitude: a.longitude ?? null,
@@ -805,6 +866,9 @@ function buildBody(f) {
     hitsterCardsToWin: f.hitsterCardsToWin,
     spotifyConnectionId: f.spotifyConnectionId === '0' || f.spotifyConnectionId === 0 ? null : f.spotifyConnectionId,
     hideQuestionsFromHost: f.hideQuestionsFromHost,
+    impostorCount: f.impostorCount,
+    revealCategoryToImpostor: f.revealCategoryToImpostor,
+    impostureScoring: f.impostureScoring,
     isPublic: f.isPublic,
     scoreEntryMode: f.scoreEntryMode,
     roundCount: f.roundCount,

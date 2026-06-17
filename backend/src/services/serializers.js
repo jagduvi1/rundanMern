@@ -36,6 +36,8 @@ function activityDerived(a) {
 }
 
 const courtDto = (c) => ({ id: idStr(c), order: c.order, name: c.name });
+// An Imposture secret word (host-only — never sent to players, they'd see the word).
+const impostureWordDto = (w) => ({ id: idStr(w), word: w.word, category: w.category ?? null });
 // A source playlist saved on a MusicQuiz (display metadata + ids for removal).
 const musicPlaylistDto = (p) => ({
   id: idStr(p),
@@ -101,6 +103,16 @@ function activityDto(a, extra = {}) {
     courtLabel: a.courtLabel,
     courts: (a.courts || []).map(courtDto),
     musicPlaylists: (a.musicPlaylists || []).map(musicPlaylistDto),
+    // Imposture config (non-secret). The word list is host-only — added below.
+    impostorCount: a.impostorCount ?? 1,
+    revealCategoryToImpostor: a.revealCategoryToImpostor !== false,
+    impostureScoring: a.impostureScoring ?? 1,
+    impostureWordCount: (a.impostureWords || []).length,
+    // The current round's phase only (no word/impostor — those go via /imposture/me).
+    imposturePhase: a.impostureRound ? a.impostureRound.phase : null,
+    impostureRoundOrder: a.impostureRound ? a.impostureRound.order : 0,
+    // Secret word list goes only to the host (canManage) — never to players.
+    ...(extra.canManage ? { impostureWords: (a.impostureWords || []).map(impostureWordDto) } : {}),
     participantCount: extra.participantCount ?? 0,
     playerCount: extra.playerCount ?? 0,
     teamCount: extra.teamCount ?? 0,
@@ -251,6 +263,7 @@ module.exports = {
   activityDerived,
   courtDto,
   musicPlaylistDto,
+  impostureWordDto,
   activityDto,
   participantDto,
   answerOptionDto,

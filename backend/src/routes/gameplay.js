@@ -359,7 +359,15 @@ router.post('/:id/scores', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/activities/:id/scores — all score lines, by round then recorded order.
+// Gated to a manager OR a participant of THIS activity (the rows carry per-round
+// notes — e.g. an Imposture round's impostor, a word game's guessed word — that
+// shouldn't be readable by anonymous outsiders).
 router.get('/:id/scores', asyncHandler(async (req, res) => {
+  const activity = await Activity.findById(req.params.id).lean();
+  if (!activity) throw new RuleViolation('Activity not found.', 404);
+  if (!(await canManageActivity(req, activity))) {
+    await resolveParticipantForActivity(req, req.params.id);
+  }
   const entries = await ScoreEntry.find({ activityId: req.params.id })
     .sort({ round: 1, _id: 1 })
     .populate('participantId', 'displayName')

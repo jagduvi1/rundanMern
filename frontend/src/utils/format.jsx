@@ -3,7 +3,7 @@
 // auto-generated rules summary, the per-type label, and the slap blurbs. Reused by
 // Events / Event / Activity / Manage / Diploma so the copy stays consistent.
 import {
-  ActivityType, MatchFormat, Measurement, ScoringMode, ScoreEntryMode, SlapMode,
+  ActivityType, MatchFormat, Measurement, ScoringMode, ScoreEntryMode, SlapMode, ImpostureScoring,
 } from '../config/enums';
 import { sanitizeRichText } from '../components/RichTextEditor';
 
@@ -48,6 +48,7 @@ export function typeLabel(type) {
     case ActivityType.MapPin: return 'Kartnål';
     case ActivityType.MusicQuiz: return 'Musikquiz';
     case ActivityType.Memory: return 'Memory';
+    case ActivityType.Imposture: return 'Imposture';
     default: return String(type);
   }
 }
@@ -108,6 +109,15 @@ export function rulesSummary(a) {
       lines.push(a.measuresTime
         ? 'Töm brädan så snabbt du kan — snabbast tid vinner.'
         : 'Töm brädan på så få vändningar som möjligt — färst vändningar vinner.');
+      break;
+    case ActivityType.Imposture:
+      lines.push('Alla utom en hemlig impostor får se det hemliga ordet. Turas om att säga ETT ledord var — utan att avslöja ordet.');
+      lines.push('Impostorn vet inte ordet och måste bluffa. Efter ledorden röstar alla i appen på vem de tror är impostorn.');
+      lines.push(a.impostureScoring === ImpostureScoring.CatchersOnly
+        ? 'Poäng: den som röstar rätt på impostorn får poäng.'
+        : a.impostureScoring === ImpostureScoring.StandardPlusGuess
+          ? 'Poäng: rätt röst ger poäng; en oavslöjad impostor får poäng — och en avslöjad impostor kan gissa ordet för bonus.'
+          : 'Poäng: rätt röst ger poäng, och en oavslöjad impostor får poäng.');
       break;
     default: { // ScoreGame + any future round game
       const measure = a.measurement === Measurement.TimeSeconds ? 'en tid'

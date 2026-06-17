@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const {
   ActivityType, ActivityStatus, ScoringMode, Measurement,
-  MatchFormat, TournamentScoring, ScoreEntryMode, values,
+  MatchFormat, TournamentScoring, ScoreEntryMode, ImpostureScoring, values,
 } = require('../constants/enums');
 
 // ── Embedded subdocuments (small, ordered, always loaded with the activity) ──
@@ -44,6 +44,29 @@ const musicPlaylistSchema = new mongoose.Schema({
   description: { type: String, maxlength: 1000, default: null },
   addedUtc: { type: Date, default: Date.now },
 });
+
+// One secret word (with optional category hint) for an Imposture game.
+const impostureWordSchema = new mongoose.Schema({
+  word: { type: String, required: true, maxlength: 80 },
+  category: { type: String, maxlength: 80, default: null },
+});
+
+// The single ACTIVE Imposture round, embedded on the activity (host-paced, one at
+// a time). impostorIds is SERVER-ONLY — never sent to non-impostors. phase walks
+// 0 clues → 1 voting → 2 revealed. Replaced when the host starts the next round.
+const impostureRoundSchema = new mongoose.Schema({
+  order: { type: Number, default: 0 },
+  word: { type: String, default: null },
+  category: { type: String, default: null },
+  impostorIds: { type: [mongoose.Schema.Types.ObjectId], default: [] },
+  phase: { type: Number, default: 0 },
+  startedUtc: { type: Date, default: Date.now },
+  scored: { type: Boolean, default: false },
+  // Word-guess (StandardPlusGuess scheme): a caught impostor's one guess.
+  guess: { type: String, default: null },
+  guessCorrect: { type: Boolean, default: false },
+  guessByParticipantId: { type: mongoose.Schema.Types.ObjectId, default: null },
+}, { _id: false });
 
 // ── Activity ────────────────────────────────────────────────────────────────
 // The big polymorphic game instance; many fields are type-specific (quiz,
@@ -89,6 +112,11 @@ const activitySchema = new mongoose.Schema({
   spotifyConnectionId: { type: mongoose.Schema.Types.ObjectId, default: null },
   hideQuestionsFromHost: { type: Boolean, default: false },
 
+  // Imposture (find-the-impostor word game)
+  impostorCount: { type: Number, default: 1 },
+  revealCategoryToImpostor: { type: Boolean, default: true },
+  impostureScoring: { type: Number, enum: values(ImpostureScoring), default: ImpostureScoring.Standard },
+
   // Library reuse. inLibrary = saved as a reusable template in its owner's library
   // (a standalone activity, eventId null, owned by `owner`). isPublic = that library
   // template is ALSO shared publicly with every logged-in user. isPublic is only
@@ -126,6 +154,9 @@ const activitySchema = new mongoose.Schema({
   memoryCards: { type: [memoryCardSchema], default: [] },
   // Source playlists for a MusicQuiz (import more later; round-robin across them).
   musicPlaylists: { type: [musicPlaylistSchema], default: [] },
+  // Imposture: the host-authored secret-word list + the current live round.
+  impostureWords: { type: [impostureWordSchema], default: [] },
+  impostureRound: { type: impostureRoundSchema, default: null },
 });
 
 activitySchema.index({ eventId: 1, order: 1 });
