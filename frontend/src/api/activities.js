@@ -16,6 +16,8 @@ export const addActivityToLibrary = (id) =>
 // Share / unshare one of my library templates with all logged-in users.
 export const setLibraryVisibility = (id, isPublic) =>
   apiPost(`/activities/${id}/library-visibility`, { isPublic }, { activityId: id });
+// Events that contain copies made from this library template → [{ id, name }].
+export const getActivityUsedIn = (id) => apiGet(`/activities/${id}/used-in`, { activityId: id });
 export const setActivityStatus = (id, status) =>
   apiPut(`/activities/${id}/status`, { status }, { activityId: id });
 export const setCourts = (id, label, names) =>

@@ -530,6 +530,18 @@ router.get('/by-code/:code', optionalAuth, asyncHandler(async (req, res) => {
   res.json(await loadActivityDto(activity, { canManage }));
 }));
 
+// GET /api/activities/:id/used-in — the events that contain copies deep-copied from
+// this library template (via "add from library"). Returns [{ id, name }], newest of
+// each event de-duplicated. Drives the "Används i …" line on the library page.
+router.get('/:id/used-in', optionalAuth, asyncHandler(async (req, res) => {
+  const copies = await Activity.find({ copiedFromId: req.params.id, eventId: { $ne: null } })
+    .select('eventId').lean();
+  const eventIds = [...new Set(copies.map((c) => String(c.eventId)))];
+  if (eventIds.length === 0) return res.json([]);
+  const events = await Event.find({ _id: { $in: eventIds } }).select('name').lean();
+  res.json(events.map((e) => ({ id: String(e._id), name: e.name })));
+}));
+
 // ── Scoreboard (initial-load REST mirror of the socket push) ──────────────────
 
 // GET /api/activities/:id/scoreboard

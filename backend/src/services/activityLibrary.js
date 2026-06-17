@@ -102,6 +102,7 @@ async function copyToEvent(sourceId, eventId, requesterId = null) {
     inLibrary: false,
     isPublic: false, // a copy living inside an event isn't itself a library item
     owner: null, // governed by the event's owner/admins, not a standalone owner
+    copiedFromId: source._id, // remember the template, for its "used-in" list
   });
 }
 

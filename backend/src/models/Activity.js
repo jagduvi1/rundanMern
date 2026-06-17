@@ -79,6 +79,9 @@ const activitySchema = new mongoose.Schema({
   // meaningful alongside inLibrary; the public-library list is inLibrary && isPublic.
   inLibrary: { type: Boolean, default: false },
   isPublic: { type: Boolean, default: false },
+  // Set on an event copy to the library template it was deep-copied from, so a
+  // template can report which events use copies of it (GET /activities/:id/used-in).
+  copiedFromId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
 
   // Standalone-activity ownership (the account that created it). Event activities
   // are governed by their event's owner/admins instead. Null for legacy/seeded
