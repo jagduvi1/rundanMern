@@ -203,11 +203,19 @@ router.post('/:id/hitster/bonus', asyncHandler(async (req, res) => {
     throw new RuleViolation('It is not your turn.');
   }
 
+  // One bonus attempt per drawn card. Re-calling re-awarded points and minted a
+  // free timeline card on every correct guess (deterministic cheat-to-win + corrupt
+  // ScoreEntries). The lock clears naturally when /place advances to the next card.
+  if (String(currentTeam.bonusGuessedForCardId || '') === String(game.currentCard.questionId)) {
+    throw new RuleViolation('You already guessed the bonus for this card.', 409);
+  }
+
   const { title, artist } = req.body || {};
   const titleOk = title ? fuzzyMatches(title, game.currentCard.title) : false;
   const artistOk = artist ? fuzzyMatches(artist, game.currentCard.artist) : false;
   const bonusEarned = (titleOk ? 1 : 0) + (artistOk ? 1 : 0);
 
+  currentTeam.bonusGuessedForCardId = game.currentCard.questionId;
   currentTeam.bonusCount += bonusEarned;
   currentTeam.totalBonus += bonusEarned;
 

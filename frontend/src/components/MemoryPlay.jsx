@@ -40,11 +40,13 @@ export default function MemoryPlay({ activity, participant }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [elapsed, setElapsed] = useState(0);
+  const [submitting, setSubmitting] = useState(false); // final-score POST in flight
 
   const flippedRef = useRef([]); // indices currently face-up (max 2)
   const startRef = useRef(null); // ms timestamp of the first flip
   const tickRef = useRef(null); // interval id
   const aliveRef = useRef(true);
+  const finalFlipsRef = useRef(0); // captured flip count, so we can retry a failed submit
 
   // Build the board state from the server's dealt cards.
   function build(dealt) {
@@ -93,20 +95,27 @@ export default function MemoryPlay({ activity, participant }) {
 
   async function finish(finalFlips) {
     stopTicking();
-    setDone(true);
+    finalFlipsRef.current = finalFlips;
     const seconds = startRef.current != null ? Math.round((Date.now() - startRef.current) / 1000) : 0;
+    setSubmitting(true);
+    setError(null);
     try {
       // Backend reads `time` (seconds) for time games; `flips` otherwise. We send
       // both `time` and `seconds` so the score lands regardless of which key the
       // server keys on (see the contract note in the summary).
       await submitMemoryResult(activity.id, { time: seconds, seconds, flips: finalFlips });
+      // Only mark "done" once the score is safely recorded — otherwise a transient
+      // failure would lock the board and silently drop the team's completed score.
+      if (aliveRef.current) setDone(true);
     } catch (e) {
-      if (aliveRef.current) setError(e?.message || 'Kunde inte spara resultatet.');
+      if (aliveRef.current) setError(e?.message || 'Kunde inte spara resultatet — försök igen.');
+    } finally {
+      if (aliveRef.current) setSubmitting(false);
     }
   }
 
   function flip(idx) {
-    if (busy || done) return;
+    if (busy || done || submitting) return;
     if (cards[idx].state !== 'down' || flippedRef.current.length >= 2) return;
 
     // Start the clock on the very first flip.
@@ -190,6 +199,12 @@ export default function MemoryPlay({ activity, participant }) {
       </div>
 
       {error ? <div style={errorBox}>{error}</div> : null}
+      {error && !done ? (
+        <button type="button" className="btn sm" onClick={() => finish(finalFlipsRef.current)} disabled={submitting}>
+          {submitting ? 'Sparar…' : 'Försök igen'}
+        </button>
+      ) : null}
+      {submitting && !error ? <div className="muted small">Sparar resultatet…</div> : null}
       {done ? (
         <div style={successBox}>🎉 Klart! {resultText} — registrerat för ditt lag.</div>
       ) : null}
@@ -200,7 +215,7 @@ export default function MemoryPlay({ activity, participant }) {
             key={i}
             type="button"
             onClick={() => flip(i)}
-            disabled={busy || done || c.state !== 'down'}
+            disabled={busy || done || submitting || c.state !== 'down'}
             style={cardStyle(c.state)}
           >
             <span>{c.state === 'down' ? '' : c.text}</span>
@@ -209,7 +224,7 @@ export default function MemoryPlay({ activity, participant }) {
       </div>
 
       {!done ? (
-        <button className="btn ghost sm" onClick={reset} disabled={busy}>
+        <button className="btn ghost sm" onClick={reset} disabled={busy || submitting}>
           Blanda och börja om
         </button>
       ) : null}

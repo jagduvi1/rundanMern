@@ -16,6 +16,7 @@ import {
 import { getLibraryTags, getLibraryAvailable, generateFromLibrary } from '../api/library';
 import { ActivityType, QuestionKind } from '../config/enums';
 import RichTextEditor from './RichTextEditor';
+import { richHtml } from '../utils/format';
 import ImageUploader from './ImageUploader';
 import Spinner from './Spinner';
 
@@ -301,7 +302,7 @@ export default function QuestionEditor({ activity, onChanged }) {
                   ) : !q.text || !q.text.trim() ? (
                     <span className="muted"><i>Ingen fråga än</i></span>
                   ) : (
-                    <span dangerouslySetInnerHTML={{ __html: q.text }} />
+                    <span className="rte-content" dangerouslySetInnerHTML={richHtml(q.text)} />
                   )}
                   <span className="muted" style={{ fontSize: '.78rem' }}>
                     {' · '}{kindLabel(q.kind)} · {q.points} p

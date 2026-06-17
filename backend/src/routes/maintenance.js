@@ -114,8 +114,8 @@ router.post(
 // no FK enforcement.
 const DOMAIN_MODELS = [
   'Answer', 'ScoreEntry', 'BracketMatch', 'Question', 'Participant', 'Slap',
-  'ChatMessage', 'ActivityPhoto', 'PushSubscription', 'EventViewer',
-  'Activity', 'EventMember', 'Event', 'User',
+  'ChatMessage', 'ActivityPhoto', 'PushSubscription', 'EventViewer', 'HitsterGame',
+  'Activity', 'EventMember', 'Event', 'User', 'Invite',
   'QuestionTemplateUsage', 'QuestionTemplate', 'SpotifyConnection',
 ];
 

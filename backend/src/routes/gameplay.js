@@ -332,14 +332,21 @@ async function recordScore(activity, req) {
 // RecordScoreRequest { participantId, userId?, round(default 1), points, note? }.
 router.post('/:id/scores', asyncHandler(async (req, res) => {
   const { id } = req.params;
-  // Any participant of this activity (or a manager) may record a score; resolving
-  // the participant token both authenticates and asserts activity membership.
-  await resolveParticipantForActivity(req, id);
+  // Resolving the participant token both authenticates and asserts activity membership.
+  const caller = await resolveParticipantForActivity(req, id);
 
   const activity = await Activity.findById(id);
   if (!activity) throw new RuleViolation('Activity not found.', 404);
 
-  const dto = await recordScore(activity, req.body || {});
+  // A plain participant may only score THEIR OWN team; a host / event-admin may score
+  // any team (host scorekeeper / proxy). Without this, any joined device could
+  // overwrite or tank any other team's score (or destroy a measurement reading).
+  const body = req.body || {};
+  if (String(body.participantId) !== String(caller._id) && !(await canManageActivity(req, activity))) {
+    throw new RuleViolation('You can only record your own team’s score.', 403);
+  }
+
+  const dto = await recordScore(activity, body);
   await pushScoreboard(id);
 
   // Auto-finalize once every expected score is in (so the slap ceremony self-fires).
