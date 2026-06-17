@@ -570,6 +570,7 @@ export default function Event() {
       {(!eventUnderway || infoOpen) ? (
         <div className="stack">
           {event.description ? <div className="rte-content" dangerouslySetInnerHTML={richHtml(event.description)} /> : null}
+          {joinedName ? <p className="muted" style={{ margin: 0 }}>Du spelar som <b>{joinedName}</b>.</p> : null}
           <div className="row wrap muted small" style={{ alignItems: 'center' }}>
             <span>Evenemangskod <b style={{ letterSpacing: '0.08em' }}>{event.joinCode}</b></span>
             <span>·</span>
@@ -766,9 +767,6 @@ export default function Event() {
 
   // Player identity surfaces — split out of one flat block so each role only
   // sees what's relevant (no competing "how do you want to join" cards).
-  const joinedStatusBlock = joinedName ? (
-    <div className="card center muted">Du spelar som <b>{joinedName}</b>.</div>
-  ) : null;
 
   const viewerStatusBlock = (
     <div className="card stack center">
@@ -948,7 +946,7 @@ export default function Event() {
             <p className="muted small" style={{ margin: 0 }}>Som värd kan du delta i tävlingen — dina poäng sparas.</p>
             <button type="button" className="btn block ghost" onClick={claimAsMe} disabled={busy}>Spela som mig</button>
           </div>
-        ) : eventName ? joinedStatusBlock : viewer ? viewerStatusBlock : null}
+        ) : viewer ? viewerStatusBlock : null}
 
         {viewersBlock}
         {playGroup}
@@ -966,7 +964,7 @@ export default function Event() {
         {previewBanner}
         {headerBlock}
         {finalResultsBlock}
-        {viewer ? viewerStatusBlock : joinedStatusBlock}
+        {viewer ? viewerStatusBlock : null}
         {viewersBlock}
         {playGroup}
         {arrivalOverlay}

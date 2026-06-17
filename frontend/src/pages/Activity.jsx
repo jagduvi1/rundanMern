@@ -315,14 +315,14 @@ export default function Activity() {
     <>
       {toast}
       {activity.eventId && siblings ? (
-        <div className="row" style={navBar}>
+        <div style={navBar}>
           {siblings.prev ? (
-            <Link className="btn ghost sm" to={`/a/${siblings.prev.id}`} title={siblings.prev.title}>‹ {siblings.prev.title}</Link>
-          ) : <span />}
-          <Link className="btn ghost sm" to={`/e/${activity.eventId}`}>Totalställning</Link>
+            <Link className="btn ghost sm" to={`/a/${siblings.prev.id}`} title={siblings.prev.title} style={navLinkLeft}>‹ {siblings.prev.title}</Link>
+          ) : <span style={navLink} />}
+          <Link className="btn ghost sm" to={`/e/${activity.eventId}`} style={{ ...navLink, flexShrink: 0, flex: '0 0 auto' }}>Totalställning</Link>
           {siblings.next ? (
-            <Link className="btn ghost sm" to={`/a/${siblings.next.id}`} title={siblings.next.title}>{siblings.next.title} ›</Link>
-          ) : <span />}
+            <Link className="btn ghost sm" to={`/a/${siblings.next.id}`} title={siblings.next.title} style={navLinkRight}>{siblings.next.title} ›</Link>
+          ) : <span style={navLink} />}
         </div>
       ) : activity.eventId ? (
         <Link className="btn ghost sm" to={`/e/${activity.eventId}`} style={{ alignSelf: 'flex-start' }}>‹ Alla aktiviteter</Link>
@@ -378,20 +378,6 @@ export default function Activity() {
 
       {activity.status !== ActivityStatus.Draft ? (
         <PhotoWall activity={activity} participant={session} canManage={canManage} />
-      ) : null}
-
-      {activity.eventId && siblings ? (
-        <div className="row" style={navBar}>
-          {siblings.prev ? (
-            <Link className="btn ghost sm" to={`/a/${siblings.prev.id}`}>‹ {siblings.prev.title}</Link>
-          ) : <span />}
-          <Link className="btn ghost sm" to={`/e/${activity.eventId}`}>Totalställning</Link>
-          {siblings.next ? (
-            <Link className="btn ghost sm" to={`/a/${siblings.next.id}`}>{siblings.next.title} ›</Link>
-          ) : <span />}
-        </div>
-      ) : activity.eventId ? (
-        <Link className="btn ghost block" to={`/e/${activity.eventId}`}>← Tillbaka till alla aktiviteter</Link>
       ) : null}
 
       {canManage && !isProxying() ? (
@@ -512,10 +498,17 @@ function renderCentral(ctx) {
 }
 
 const navBar = {
-  justifyContent: 'space-between', gap: 6, padding: '.45rem .5rem',
+  display: 'flex', alignItems: 'center',
+  justifyContent: 'space-between', gap: 4, padding: '.45rem .5rem',
   background: 'var(--surface)', borderRadius: 'var(--radius-sm, 8px)',
   border: '1px solid var(--border)', flexWrap: 'nowrap', overflow: 'hidden',
 };
+const navLink = {
+  flex: '1 1 0', minWidth: 0, overflow: 'hidden',
+  textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center',
+};
+const navLinkLeft = { ...navLink, textAlign: 'left' };
+const navLinkRight = { ...navLink, textAlign: 'right' };
 
 function LiveIndicator({ state }) {
   if (state === 'live') return <span className="pill ok" title="Liveuppdateringar är på">● Live</span>;
