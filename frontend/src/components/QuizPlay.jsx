@@ -26,7 +26,7 @@ export function OptionKey(index, count) {
 }
 export function optionColor(index, count) {
   // 1 = blue, X = amber, 2 = green for coupons; accent otherwise.
-  return count === 3 ? ['#2563eb', '#d97706', '#16a34a'][index] : 'var(--accent)';
+  return count === 3 ? ['var(--key-1)', 'var(--key-x)', 'var(--key-2)'][index] : 'var(--accent)';
 }
 
 // Deterministic per-player shuffle: a mulberry32 PRNG seeded from a hash of the
@@ -61,8 +61,8 @@ export function feedbackStyle(ok) {
     padding: '10px 12px',
     borderRadius: 'var(--radius-sm)',
     fontWeight: 600,
-    background: ok ? '#dcfce7' : '#fee2e2',
-    color: ok ? '#166534' : '#991b1b',
+    background: ok ? 'var(--ok-soft)' : 'var(--danger-soft)',
+    color: ok ? 'var(--ok-ink)' : 'var(--danger-ink)',
   };
 }
 
@@ -72,8 +72,8 @@ export function OptionButton({ indexKey, accent, text, mark, state, disabled, on
   const palette = {
     '': { border: 'var(--border)', bg: 'var(--surface)' },
     selected: { border: accent, bg: 'var(--accent-soft)' },
-    correct: { border: '#16a34a', bg: '#dcfce7' },
-    wrong: { border: '#dc2626', bg: '#fee2e2' },
+    correct: { border: 'var(--ok)', bg: 'var(--ok-soft)' },
+    wrong: { border: 'var(--danger)', bg: 'var(--danger-soft)' },
   }[state] || { border: 'var(--border)', bg: 'var(--surface)' };
 
   return (

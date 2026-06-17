@@ -50,6 +50,13 @@ export const getEventUserId = (eventId) => read(KEYS.eventUser(eventId));
 export const saveEventUserId = (eventId, userId) =>
   write(KEYS.eventUser(eventId), userId ? String(userId) : null);
 
+// Per-activity play-session meta ({ id, participantId, displayName }) — the same
+// key Activity.jsx readSession reads (`rundan.psession.<activityId>`). A roster
+// claim writes this per slot so the "me" highlight + team name work when the player
+// opens the activity, and clears it when switching identity on a shared device.
+export const saveActivitySession = (activityId, meta) =>
+  write(`rundan.psession.${activityId}`, meta ? JSON.stringify(meta) : null);
+
 // ── Spectator (viewer) role/name/token ────────────────────────────────────────
 export const isViewer = (eventId) => read(KEYS.viewer(eventId)) === '1';
 export const getViewerName = (eventId) => read(KEYS.viewerName(eventId));

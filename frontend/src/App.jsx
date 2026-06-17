@@ -8,7 +8,7 @@
 // <AccessGate/> instead of the routes — the port of rundan's MainLayout access
 // gate. Pages are lazy-loaded so each route only pulls its own JS.
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Outlet } from 'react-router-dom';
 import ErrorBoundary from './components/ErrorBoundary';
 import { LoadingPage } from './components/Spinner';
 import Layout from './components/Layout';
@@ -22,6 +22,7 @@ const Home = lazy(() => import('./pages/Home'));
 const Events = lazy(() => import('./pages/Events'));
 const Event = lazy(() => import('./pages/Event'));
 const Activity = lazy(() => import('./pages/Activity'));
+const Cast = lazy(() => import('./pages/Cast'));
 const Manage = lazy(() => import('./pages/Manage'));
 const CreateEvent = lazy(() => import('./pages/CreateEvent'));
 const Admin = lazy(() => import('./pages/Admin'));
@@ -41,6 +42,19 @@ const InviteAccept = lazy(() => import('./pages/InviteAccept'));
 const Profile = lazy(() => import('./pages/Profile'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
+// The standard app chrome (sticky header + menu) wrapping the routed page. Kept as
+// a layout route so a sibling route (the full-bleed /cast projector view) can opt
+// out of it. The lazy page suspends INSIDE the header so it stays put on nav.
+function LayoutRoute() {
+  return (
+    <Layout>
+      <Suspense fallback={<LoadingPage />}>
+        <Outlet />
+      </Suspense>
+    </Layout>
+  );
+}
+
 function AppRoutes() {
   const { loading, needsAccessGate } = useBootstrap();
 
@@ -48,7 +62,8 @@ function AppRoutes() {
   // (fail-closed: never render the app while we don't yet know).
   if (loading) return <LoadingPage label="Laddar…" />;
 
-  // Shared access code required but not yet stored on this device → whole-app gate.
+  // Shared access code required but not yet stored on this device → whole-app gate
+  // (covers the cast view too — a gated deployment stays gated everywhere).
   if (needsAccessGate) {
     return (
       <Layout>
@@ -58,9 +73,19 @@ function AppRoutes() {
   }
 
   return (
-    <Layout>
-      <Suspense fallback={<LoadingPage />}>
-        <Routes>
+    <Routes>
+      {/* Full-bleed big-screen projector view — no header/menu chrome. */}
+      <Route
+        path="/cast/:id"
+        element={(
+          <Suspense fallback={<LoadingPage />}>
+            <Cast />
+          </Suspense>
+        )}
+      />
+
+      {/* Everything else lives inside the standard Layout. */}
+      <Route element={<LayoutRoute />}>
           {/* Public — players + cold-start launcher */}
           <Route path="/" element={<Home />} />
           <Route path="/events" element={<Events />} />
@@ -154,9 +179,8 @@ function AppRoutes() {
 
           {/* 404 */}
           <Route path="*" element={<NotFound />} />
-        </Routes>
-      </Suspense>
-    </Layout>
+      </Route>
+    </Routes>
   );
 }
 

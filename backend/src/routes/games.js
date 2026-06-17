@@ -67,12 +67,17 @@ async function tryAutoFinishMapPin(activity) {
   if (activity.type !== ActivityType.MapPin || activity.status !== ActivityStatus.Live) {
     return false;
   }
-  const teamCount = await Participant.countDocuments({ activityId: activity._id, isTeam: true });
+  // Scope to TEAM participants only — a stray free-name solo joiner's pins must not
+  // inflate the count and finish the game before the teams are done (mirrors
+  // tryAutoFinishScoreGame).
+  const teamIds = await Participant.find({ activityId: activity._id, isTeam: true }).distinct('_id');
   const cityCount = (activity.mapCities || []).length;
-  const expected = teamCount * cityCount;
+  const expected = teamIds.length * cityCount;
   if (expected <= 0) return false;
 
-  const recorded = await ScoreEntry.countDocuments({ activityId: activity._id });
+  const recorded = await ScoreEntry.countDocuments({
+    activityId: activity._id, participantId: { $in: teamIds },
+  });
   if (recorded < expected) return false;
 
   activity.status = ActivityStatus.Finished;

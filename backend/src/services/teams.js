@@ -138,20 +138,27 @@ async function ensureTeams(event, activity) {
 
   const groups = makeTeams(roster, Math.max(1, ev.teamSize), seedFor(ev, activity));
 
-  const created = [];
+  // Create each team. A concurrent generator (two devices claiming the instant the
+  // activity opens) can race here — both saw no existing teams — so swallow the
+  // unique-index collision (E11000) on { activityId, displayName } and re-read at
+  // the end. Every racer then returns the full, consistent team set instead of a
+  // 500 / partial list (which would drop a roster member onto the free-name path).
   for (const group of groups) {
-    // eslint-disable-next-line no-await-in-loop
-    const participant = await Participant.create({
-      activityId: activity._id,
-      displayName: group.map((u) => u.name).join(' & '),
-      isTeam: true,
-      token: crypto.randomUUID(),
-      joinedUtc: now(),
-      members: group.map((u) => ({ userId: u._id })),
-    });
-    created.push(participant);
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await Participant.create({
+        activityId: activity._id,
+        displayName: group.map((u) => u.name).join(' & '),
+        isTeam: true,
+        token: crypto.randomUUID(),
+        joinedUtc: now(),
+        members: group.map((u) => ({ userId: u._id })),
+      });
+    } catch (e) {
+      if (!(e && e.code === 11000)) throw e; // raced — the other request created this team
+    }
   }
-  return created;
+  return Participant.find({ activityId: activity._id, isTeam: true });
 }
 
 /**

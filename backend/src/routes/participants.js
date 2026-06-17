@@ -70,10 +70,12 @@ router.post('/by-code/:code/join', optionalAuth, asyncHandler(async (req, res) =
         const clash = await Participant.exists({
           activityId: activity._id, _id: { $ne: mine._id }, displayName: name,
         });
-        if (!clash) {
-          mine.displayName = name;
-          await mine.save();
-        }
+        // Reject the rename on a collision (same 409 as a new join) instead of
+        // silently keeping the old name — otherwise the player gets no feedback that
+        // the name they typed was taken and the UI shows a stale name.
+        if (clash) throw new RuleViolation('That name is already taken here — pick another.', 409);
+        mine.displayName = name;
+        await mine.save();
       }
       return res.json(await buildJoinResult(activity, mine));
     }
