@@ -18,6 +18,7 @@ import {
   setEventCode, reorderActivities, setActivitiesStatus, arrive, joinEvent, claimEvent,
   claimEventAsMe, addEventAdmin, removeEventAdmin, deleteEvent,
   addActivityFromLibrary, restartEvent, setMemberPin, revokeMember, leaveEventSelf,
+  rosterClaimLink,
 } from '../api/events';
 import { inviteToEvent } from '../api/invites';
 import { getFriends } from '../api/me';
@@ -1678,6 +1679,7 @@ function InviteFriends({ eventId, shareUrl, joinCode, members = [], onToast, onR
   const [linkUserId, setLinkUserId] = useState(''); // designate this invite for a roster person
   const [linkEmail, setLinkEmail] = useState('');
   const [linkName, setLinkName] = useState(''); // name for a brand-new (non-roster) invitee
+  const [qrName, setQrName] = useState(''); // name for a one-scan "join as this player" QR
 
   // Load the host's friends. The section is always open now, so load on mount
   // (the same lazy-once guard as before — calls the unchanged loader).
@@ -1746,6 +1748,26 @@ function InviteFriends({ eventId, shareUrl, joinCode, members = [], onToast, onR
     }
   };
 
+  // Create (or reuse) a named roster player and open a one-scan join QR for them.
+  // Scanning /e/:id?claimUser=<userId>&pin=<pin> auto-claims that identity.
+  const makeNamedQr = async () => {
+    const name = qrName.trim();
+    if (!name) return;
+    setBusy(true);
+    try {
+      const m = await rosterClaimLink(eventId, name);
+      const url = `${window.location.origin}/e/${eventId}?claimUser=${m.id}&pin=${encodeURIComponent(m.pin || '')}`;
+      setQrUrl(url);
+      setQrName('');
+      await onReload?.();
+      onToast?.(`QR skapad för ${m.name} — låt spelaren skanna den för att gå med som ${m.name}.`);
+    } catch (err) {
+      onToast?.(err?.message || 'Kunde inte skapa QR.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const disabled = anyBusy || busy;
 
   return (
@@ -1767,6 +1789,24 @@ function InviteFriends({ eventId, shareUrl, joinCode, members = [], onToast, onR
           <button type="button" className="btn sm" onClick={() => onShare?.()}>Dela / QR</button>
         </div>
         <p className="muted small" style={{ margin: 0 }}>Den som har koden eller länken kan gå med utan konto.</p>
+      </div>
+
+      {/* Named QR — add a player by name and hand them a one-scan join QR/link. The
+          person joins as exactly that roster player (created in your roster if new). */}
+      <div className="card stack" style={{ background: 'var(--surface-2)', gap: 8 }}>
+        <b>Bjud in en spelare med QR</b>
+        <p className="muted small" style={{ margin: 0 }}>
+          Skriv ett namn och skapa en QR/länk som lägger till spelaren som <b>det namnet</b>
+          {' '}(skapas i din roster om hen inte redan finns). Den som skannar går med som den spelaren.
+        </p>
+        <div className="row wrap" style={{ gap: 6 }}>
+          <input
+            type="text" className="grow" maxLength={60} placeholder="t.ex. JohanE"
+            value={qrName} onChange={(e) => setQrName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); makeNamedQr(); } }}
+          />
+          <button type="button" className="btn" onClick={makeNamedQr} disabled={disabled || !qrName.trim()}>Skapa QR</button>
+        </div>
       </div>
 
       <div className="stack" style={{ marginTop: '.2rem' }}>
