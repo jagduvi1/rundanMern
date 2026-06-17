@@ -27,7 +27,7 @@ export default function MusicHostPanel({ activity }) {
   const canPlayInApp = activity?.spotifyConnectionId != null;
   // The hook no-ops when connectionId is null, so it's safe to call unconditionally.
   const {
-    ready, deviceId, error: playerError, play, pause, resume, activate, debug,
+    ready, error: playerError, play, pause, resume, activate,
   } = useSpotifyPlayer(activity?.spotifyConnectionId || null);
 
   const [tracks, setTracks] = useState([]);
@@ -230,25 +230,6 @@ export default function MusicHostPanel({ activity }) {
         })}
       </ul>
 
-      {/* Verbose Spotify diagnostics — temporary, while we get playback solid. */}
-      <details style={{ marginTop: '.4rem' }}>
-        <summary className="muted small" style={{ cursor: 'pointer' }}>🔧 Spotify-debug</summary>
-        <div className="stack" style={{ gap: 4, marginTop: '.4rem', fontSize: '.78rem' }}>
-          <div className="muted">canPlayInApp: <b>{String(canPlayInApp)}</b> · connectionId: <b>{String(activity?.spotifyConnectionId ?? 'null')}</b></div>
-          <div className="muted">SDK laddad: <b>{String(debug.sdkLoaded)}</b> · spelare skapad: <b>{String(debug.playerCreated)}</b> · connect(): <b>{String(debug.connectResult)}</b></div>
-          <div className="muted">redo (ready): <b>{String(ready)}</b> · device_id: <b>{deviceId || '—'}</b></div>
-          <div className="muted">token: <b>{debug.token ? (debug.token.ok ? `ok (len ${debug.token.len}) @ ${debug.token.at}` : `MISSLYCKADES @ ${debug.token.at}`) : '—'}</b></div>
-          <div className="muted">
-            senaste play():{' '}
-            <b>{debug.lastPlay ? `HTTP ${debug.lastPlay.status} ${debug.lastPlay.ok ? 'OK ✓' : (debug.lastPlay.body || '')}${debug.lastPlay.transferred ? ' (efter transfer)' : ''} @ ${debug.lastPlay.at}` : '—'}</b>
-          </div>
-          <div className="muted">spår med spotifyUrl: <b>{tracks.filter((t) => t.spotifyUrl && t.spotifyUrl.trim()).length}/{tracks.length}</b></div>
-          {playerError ? <div className="error-text">player-fel: {playerError}</div> : null}
-          <pre style={{ maxHeight: 220, overflow: 'auto', background: 'var(--surface-2)', padding: '.4rem .5rem', borderRadius: 6, fontSize: '.72rem', margin: 0, whiteSpace: 'pre-wrap' }}>
-            {debug.events.length ? debug.events.map((e) => `${e.t}  [${e.kind}] ${e.msg}`).join('\n') : '(inga händelser än — tryck ▶ Spela)'}
-          </pre>
-        </div>
-      </details>
     </div>
   );
 }
