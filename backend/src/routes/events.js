@@ -1255,10 +1255,14 @@ router.post(
     // Claiming your OWN logged-in identity needs no PIN; anyone else claiming a
     // protected member (admin, or a host-set PIN) must present the correct PIN.
     const isOwn = !!ownUserId && ownUserId === String(userId);
-    // An admin (co-host) member is ALWAYS PIN-gated — even "play as me" — so an
-    // account that got bound to a now-admin roster identity can't claim the co-host
-    // token PIN-free (TOCTOU: invite designated while non-admin, later promoted).
-    if (member.claimPin && (!isOwn || member.isAdmin)) {
+    // A manager (event owner / co-admin) already holds every PIN and fully controls
+    // the event, so they may claim any identity PIN-free — this is what makes "play
+    // as me" work for a host whose own roster identity is an admin/co-host member.
+    const canManage = await canManageEvent(req, event);
+    // Admin (co-host) members are otherwise ALWAYS PIN-gated — even "play as me" —
+    // so a NON-manager account that got bound to a now-admin roster identity can't
+    // claim the co-host token PIN-free (TOCTOU: bound while non-admin, later promoted).
+    if (member.claimPin && !canManage && (!isOwn || member.isAdmin)) {
       const pin = typeof req.body?.pin === 'string' ? req.body.pin.trim() : '';
       if (!timingSafeEqualStr(pin, member.claimPin)) {
         throw new RuleViolation(
