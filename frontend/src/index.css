@@ -434,3 +434,21 @@ label { font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 6px;
   text-shadow: 0 0 40px rgba(255,107,61,0.7); animation: castCd 0.9s cubic-bezier(0.2,1.4,0.3,1); }
 @keyframes castCd { 0% { transform: scale(2.2); opacity: 0; } 40% { opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
 .cast-empty { font-size: clamp(16px,1.8vw,22px); opacity: 0.7; }
+
+/* Host control dock inside arcade mode — a competing host's collapsible bottom
+   sheet over the neon player. Keeps the host panel (Spotify player + start
+   controls) mounted so playback persists and the host can run the round. */
+.arcade-hostdock {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+  max-height: 82vh; overflow: auto;
+  background: var(--surface); color: var(--text);
+  border-top: 2px solid var(--accent);
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.45);
+}
+.arcade-hostdock > summary {
+  position: sticky; top: 0; z-index: 1; list-style: none; cursor: pointer;
+  padding: 11px 16px; font-weight: 800;
+  background: var(--accent); color: #fff;
+}
+.arcade-hostdock > summary::-webkit-details-marker { display: none; }
+.arcade-hostdock-body { padding: 10px; }
