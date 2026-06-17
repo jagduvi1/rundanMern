@@ -13,11 +13,18 @@ import { useToast } from '../components/Toast';
 import StatusBadge from '../components/StatusBadge';
 import Pill from '../components/Pill';
 
-function EventCard({ ev, joinedName, winner, onEnter }) {
+function EventCard({ ev, joinedName, winner, onEnter, me }) {
   const activities = [...(ev.activities || [])].sort((a, b) => a.order - b.order);
   const cta = ev.isComplete
     ? 'Se slutresultat'
     : joinedName ? `Fortsätt som ${joinedName}` : `Gå in i ${ev.name}`;
+  // Shared-status (managers only — owner/coAdmins are redacted from players). Owner
+  // sees "shared with N", a co-host sees "shared by {owner}".
+  const coAdmins = ev.coAdmins || [];
+  const iAmOwner = !!(me && ev.owner && ev.owner.email === me.email);
+  const sharedLabel = ev.canManage && coAdmins.length > 0
+    ? (iAmOwner ? `Delad med ${coAdmins.length}` : `Delad av ${ev.owner?.displayName || ev.owner?.username || 'någon'}`)
+    : null;
 
   return (
     <div className="card stack">
@@ -25,6 +32,7 @@ function EventCard({ ev, joinedName, winner, onEnter }) {
       <div className="row" style={{ gap: 8 }}>
         <h2 style={{ margin: 0 }} className="grow">{ev.name}</h2>
         {ev.canManage ? <Pill kind="accent">Värd</Pill> : null}
+        {sharedLabel ? <span className="muted small">{sharedLabel}</span> : null}
       </div>
 
       {ev.isComplete ? (
@@ -163,6 +171,7 @@ export default function Events() {
             joinedName={names[ev.id]}
             winner={winners[ev.id]}
             onEnter={(id) => navigate(`/e/${id}`)}
+            me={user}
           />
         ))
       )}
@@ -179,6 +188,7 @@ export default function Events() {
               joinedName={names[ev.id]}
               winner={winners[ev.id]}
               onEnter={(id) => navigate(`/e/${id}`)}
+              me={user}
             />
           )) : null}
         </div>

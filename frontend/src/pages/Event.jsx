@@ -1183,6 +1183,28 @@ function HostControls({
     }
   };
 
+  // Am I the owner (the sharer) or a co-host (shared with)? Match by email, like the
+  // co-host rows below. Sharing is owner-driven: only the owner adds/removes co-hosts.
+  const isOwner = !!(user && event.owner && event.owner.email === user.email);
+  const isCoHost = !!(user && (event.coAdmins || []).some((c) => c.email === user.email));
+
+  // A co-host leaves the shared event (removes their own co-host access). Afterwards
+  // they no longer manage it, so navigate away rather than reloading into a redacted view.
+  const leaveEvent = async () => {
+    const meCo = (event.coAdmins || []).find((c) => user && c.email === user.email);
+    if (!meCo) return;
+    setAdminErr(null);
+    setLocalBusy(true);
+    try {
+      await removeEventAdmin(id, meCo.id);
+      onToast('Du har lämnat evenemanget.');
+      navigate('/events', { replace: true });
+    } catch (err) {
+      setAdminErr(err?.message || 'Kunde inte lämna evenemanget.');
+      setLocalBusy(false);
+    }
+  };
+
   const saveDetails = async () => {
     setLocalBusy(true);
     try {
@@ -1417,46 +1439,72 @@ function HostControls({
         onClose={() => setMemberQr(null)}
       />
 
-      {/* Co-admins (shared event ownership by account) */}
-      <details>
+      {/* Sharing — account co-hosts. Owner-driven: only the owner adds/removes a
+          co-host; a co-host can leave. Both owner and co-hosts see who shared it
+          (the owner) and with whom (the co-hosts). Open by default when shared. */}
+      <details open={(event.coAdmins || []).length > 0}>
         <summary style={{ cursor: 'pointer', fontWeight: 700 }}>
-          Medvärdar (konton){(event.coAdmins || []).length > 0 ? ` (${event.coAdmins.length})` : ''}
+          Delning{(event.coAdmins || []).length > 0 ? ` · medvärdar (${event.coAdmins.length})` : ''}
         </summary>
         <div className="stack" style={{ marginTop: '.6rem' }}>
           <p className="muted">
-            Bjud in andra registrerade konton att vara admin för det här evenemanget — då delas det och flera kan hantera spelen.
-            Personen måste ha skapat ett konto med den e-postadressen först. Alla admins kan lägga till fler medvärdar.
+            {isOwner
+              ? 'Dela evenemanget med ett annat konto så ni kan hantera spelen tillsammans. Personen måste ha skapat ett konto med e-postadressen först. Bara du som ägare kan lägga till och ta bort medvärdar.'
+              : 'Det här evenemanget är delat med dig — du kan hantera spelen. Du kan lämna när du vill; då förlorar du åtkomsten.'}
           </p>
+
+          {/* By whom — the owner (the sharer) */}
           {event.owner ? (
             <div className="row" style={{ borderBottom: '1px solid var(--border)', padding: '.35rem 0' }}>
               <span className="grow">
                 {event.owner.displayName || event.owner.username}{' '}
                 <span className="muted small">{event.owner.email}</span>
+                {isOwner ? <span className="muted small"> · du</span> : null}
               </span>
               <span className="muted small">ägare</span>
             </div>
           ) : null}
-          {(event.coAdmins || []).map((a) => (
-            <div key={a.id} className="row" style={{ borderBottom: '1px solid var(--border)', padding: '.35rem 0' }}>
-              <span className="grow">
-                {a.displayName || a.username}{' '}
-                <span className="muted small">{a.email}</span>
-                {user && a.email === user.email ? <span className="muted small"> · du</span> : null}
-              </span>
-              <button type="button" className="btn ghost sm" onClick={() => removeAdmin(a.id)} disabled={anyBusy}>Ta bort</button>
+
+          {/* With whom — the co-hosts */}
+          {(event.coAdmins || []).map((a) => {
+            const isMe = user && a.email === user.email;
+            return (
+              <div key={a.id} className="row" style={{ borderBottom: '1px solid var(--border)', padding: '.35rem 0' }}>
+                <span className="grow">
+                  {a.displayName || a.username}{' '}
+                  <span className="muted small">{a.email}</span>
+                  {isMe ? <span className="muted small"> · du</span> : null}
+                </span>
+                <span className="muted small">medvärd</span>
+                {isOwner && !isMe ? (
+                  <button type="button" className="btn ghost sm danger" onClick={() => removeAdmin(a.id)} disabled={anyBusy}>Ta bort</button>
+                ) : null}
+              </div>
+            );
+          })}
+
+          {/* Owner: add a co-host by email */}
+          {isOwner ? (
+            <div className="row" style={{ marginTop: '.4rem' }}>
+              <input
+                type="email"
+                className="grow"
+                placeholder="e-postadress till en medvärd"
+                value={adminEmail}
+                onChange={(e) => setAdminEmail(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addAdmin(); } }}
+              />
+              <button type="button" className="btn success" onClick={addAdmin} disabled={anyBusy || !adminEmail.trim()}>Dela</button>
             </div>
-          ))}
-          <div className="row" style={{ marginTop: '.4rem' }}>
-            <input
-              type="email"
-              className="grow"
-              placeholder="e-postadress till en medvärd"
-              value={adminEmail}
-              onChange={(e) => setAdminEmail(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addAdmin(); } }}
-            />
-            <button type="button" className="btn success" onClick={addAdmin} disabled={anyBusy || !adminEmail.trim()}>Lägg till</button>
-          </div>
+          ) : null}
+
+          {/* Co-host: leave the shared event */}
+          {!isOwner && isCoHost ? (
+            <div className="row" style={{ marginTop: '.4rem' }}>
+              <button type="button" className="btn ghost danger" onClick={leaveEvent} disabled={anyBusy}>Lämna evenemanget</button>
+            </div>
+          ) : null}
+
           {adminErr ? <p className="error small" style={{ margin: 0 }}>{adminErr}</p> : null}
         </div>
       </details>

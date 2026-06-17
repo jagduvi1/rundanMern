@@ -625,9 +625,16 @@ router.post(
 // ── Account co-admins (event.admins) ──────────────────────────────────────────
 // Distinct from the roster EventMember admins above: these are full Accounts
 // promoted to co-host an event, so the event is shared and any of them can manage
-// it after logging in (canManageEvent honours event.admins). Any current manager
-// may add/remove co-admins; the owner can never be removed.
+// it after logging in (canManageEvent honours event.admins). Sharing is OWNER-DRIVEN:
+// only the owner adds/removes co-hosts (so "shared by {owner}" is always accurate),
+// while a co-host may remove only themselves (leave). The owner can never be removed.
 const ADMIN_EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+// True when the authed account is the event's owner.
+const isEventOwner = (req, event) => {
+  const uid = req.user?.id ? String(req.user.id) : null;
+  return !!(uid && event.owner && String(event.owner) === uid);
+};
 
 async function sendCoAdminEmail(account, event) {
   if (!emailService.isEnabled() || !account.email) return false;
@@ -661,10 +668,10 @@ router.post(
   eventManager,
   asyncHandler(async (req, res) => {
     const event = req.targetEvent;
-    // Managing the co-admin list requires being an account owner/admin (or
-    // super-admin) — a delegated member token is not enough to grant durable rights.
-    if (!canManageEventAsAccount(req, event)) {
-      throw new RuleViolation('Only the event owner or an account admin can manage co-admins.', 403);
+    // Sharing is owner-driven: only the owner may add co-hosts. (A delegated member
+    // token could never reach here anyway — co-hosts are durable account grants.)
+    if (!isEventOwner(req, event)) {
+      throw new RuleViolation('Only the event owner can share the event with a co-host.', 403);
     }
     const email = typeof req.body?.email === 'string' ? req.body.email.toLowerCase().trim() : '';
     if (!ADMIN_EMAIL_RE.test(email)) throw new RuleViolation('Enter a valid email address.');
@@ -691,18 +698,26 @@ router.post(
   })
 );
 
-// DELETE /api/events/:id/admins/:accountId — demote a co-admin. The owner can
-// never be removed. Any manager may remove (including themselves).
+// DELETE /api/events/:id/admins/:accountId — remove a co-host. The OWNER may remove
+// any co-host; a co-host may remove only THEMSELVES (i.e. leave the shared event).
+// The owner can never be removed.
 router.delete(
   '/:id/admins/:accountId',
   requireAuth,
   eventManager,
   asyncHandler(async (req, res) => {
     const event = req.targetEvent;
+    // Caller must be a current account manager (owner or co-host) — not a member token.
     if (!canManageEventAsAccount(req, event)) {
-      throw new RuleViolation('Only the event owner or an account admin can manage co-admins.', 403);
+      throw new RuleViolation('Only the event owner or a co-host can do this.', 403);
     }
     const { accountId } = req.params;
+    const uid = req.user?.id ? String(req.user.id) : null;
+    const removingSelf = !!(uid && String(accountId) === uid);
+    // The owner removes anyone; a co-host may only leave (remove themselves).
+    if (!isEventOwner(req, event) && !removingSelf) {
+      throw new RuleViolation('Only the owner can remove other co-hosts. You can leave the event yourself.', 403);
+    }
     if (event.owner && String(event.owner) === String(accountId)) {
       throw new RuleViolation('The owner cannot be removed.');
     }
