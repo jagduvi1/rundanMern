@@ -54,7 +54,7 @@ function nextActions(status) {
 }
 
 export default function Manage() {
-  useDocumentTitle('Hantera · Rundan');
+  useDocumentTitle('Hantera · Gamedo');
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();

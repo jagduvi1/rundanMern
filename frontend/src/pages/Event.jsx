@@ -117,7 +117,7 @@ export default function Event() {
   const lastArrivalPostRef = useRef(0);
   const autoClaimedRef = useRef(false); // QR deep-link claim runs once
 
-  useDocumentTitle(`${event?.name || 'Evenemang'} · Rundan`);
+  useDocumentTitle(`${event?.name || 'Evenemang'} · Gamedo`);
 
   const proxy = getProxy();
   const proxyHere = isProxying() && proxy?.eventId === String(id);

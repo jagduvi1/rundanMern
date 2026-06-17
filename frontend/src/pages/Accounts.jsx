@@ -9,7 +9,7 @@ import Spinner from '../components/Spinner';
 import { listAccounts, setAccountRole } from '../api/maintenance';
 
 export default function Accounts() {
-  useDocumentTitle('Konton · Rundan');
+  useDocumentTitle('Konton · Gamedo');
   const { isAdmin } = useAuth();
   const [accounts, setAccounts] = useState(null);
   const [error, setError] = useState(null);

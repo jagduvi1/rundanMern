@@ -31,7 +31,7 @@ function pickLandingEvent(events) {
 }
 
 export default function Home() {
-  useDocumentTitle('Rundan');
+  useDocumentTitle('Gamedo');
   const navigate = useNavigate();
   const { appName } = useBootstrap();
   const [loading, setLoading] = useState(true);

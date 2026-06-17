@@ -10,7 +10,7 @@ import { readCallback, redirectUri } from '../utils/spotifyAuth';
 import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 export default function SpotifyCallback() {
-  useDocumentTitle('Ansluter Spotify · Rundan');
+  useDocumentTitle('Ansluter Spotify · Gamedo');
   const [status, setStatus] = useState('working'); // working | done | error
   const [name, setName] = useState(null);
   const [error, setError] = useState(null);
@@ -47,7 +47,7 @@ export default function SpotifyCallback() {
 
   return (
     <div className="card stack center">
-      <img src="/assets/rundan-mark.svg" width={56} height={56} alt="" style={{ margin: '0 auto' }} />
+      <img src="/assets/gamedo-mark.svg" width={56} height={56} alt="" style={{ margin: '0 auto' }} />
       <h1>Spotify</h1>
       {status === 'error' ? (
         <>

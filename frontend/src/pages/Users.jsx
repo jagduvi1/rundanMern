@@ -10,7 +10,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import AdminNav from '../components/AdminNav';
 
 export default function Users() {
-  useDocumentTitle('Personer · Värd · Rundan');
+  useDocumentTitle('Personer · Värd · Gamedo');
   const { toast, show } = useToast();
 
   const [users, setUsers] = useState([]);

@@ -9,7 +9,7 @@ import { useDocumentTitle } from '../utils/useDocumentTitle';
 import Spinner from '../components/Spinner';
 
 export default function ForgotPassword() {
-  useDocumentTitle('Glömt lösenord · Rundan');
+  useDocumentTitle('Glömt lösenord · Gamedo');
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);

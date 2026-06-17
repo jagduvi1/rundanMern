@@ -22,8 +22,8 @@ function enabled() {
 }
 
 function userAgent() {
-  const app = env.appName || 'Rundan';
-  const url = env.frontendUrl || 'https://rundan.azurewebsites.net';
+  const app = env.appName || 'Gamedo';
+  const url = env.frontendUrl || 'https://gamedo.app';
   return `${app}/1.0 (${url})`;
 }
 

@@ -8,7 +8,7 @@ import { apiPost } from '../api/client';
 import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 export default function VerifyEmail() {
-  useDocumentTitle('Verifierar e-post · Rundan');
+  useDocumentTitle('Verifierar e-post · Gamedo');
   const [params] = useSearchParams();
   const token = params.get('token');
   const ranRef = useRef(false);

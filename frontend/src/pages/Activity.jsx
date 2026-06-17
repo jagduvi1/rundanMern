@@ -92,7 +92,7 @@ export default function Activity() {
   const pollRef = useRef(null);
   activityRef.current = activity;
 
-  useDocumentTitle(`${activity?.title || 'Aktivitet'} · Rundan`);
+  useDocumentTitle(`${activity?.title || 'Aktivitet'} · Gamedo`);
 
   const participantId = session?.participantId ?? session?.id ?? null;
   const canManage = !isPreviewMode() && !!activity?.canManage;

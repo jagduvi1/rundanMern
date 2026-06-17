@@ -1,4 +1,4 @@
-/* Rundan service worker — minimal: enables Web Push notifications for events.
+/* Gamedo service worker — minimal: enables Web Push notifications for events.
    (No offline caching; the app is online-first behind a live scoreboard.) */
 
 self.addEventListener('install', () => self.skipWaiting());
@@ -7,11 +7,11 @@ self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim(
 self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data && event.data.text() }; }
-  const title = data.title || 'Rundan';
+  const title = data.title || 'Gamedo';
   const options = {
     body: data.body || '',
-    icon: '/assets/rundan-mark.svg',
-    badge: '/assets/rundan-mark.svg',
+    icon: '/assets/gamedo-mark.svg',
+    badge: '/assets/gamedo-mark.svg',
     data: { url: data.url || '/' },
     tag: data.tag,
   };

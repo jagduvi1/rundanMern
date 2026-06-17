@@ -1,8 +1,8 @@
-# Rundan (MERN)
+# Gamedo (MERN)
 
-A **MERN-stack port** of [Rundan](https://github.com/jagduvi1/rundan) — a private, mobile-first
-web app for running group party games together, with a **live shared scoreboard** that updates in
-real time as answers and scores come in.
+**Gamedo** is a private, mobile-first web app for running group party games together, with a
+**live shared scoreboard** that updates in real time as answers and scores come in. It's a
+**MERN-stack port** of [Rundan](https://github.com/jagduvi1/rundan) (the original .NET app).
 
 The original is a .NET 10 / Blazor WebAssembly / SignalR / SQLite app (~22k LOC). This repo rebuilds
 it on the **same stack and conventions as [Glosan](https://github.com/jagduvi1/glosan)**:

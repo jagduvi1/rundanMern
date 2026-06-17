@@ -44,7 +44,7 @@ export default function Layout({ children }) {
         </button>
         <Link to="/events" className="brand">
           <img
-            src="/assets/rundan-mark.svg"
+            src="/assets/gamedo-mark.svg"
             alt=""
             width={26}
             height={26}

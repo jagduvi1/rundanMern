@@ -1,8 +1,9 @@
 # CLAUDE.md — working notes for this repo
 
-Rundan (MERN) is a **port** of the .NET 10 / Blazor app at https://github.com/jagduvi1/rundan onto
-the **Glosan** MERN stack (MongoDB + Express + React/Vite + Socket.IO). A private, mobile-first
-party-games platform with a live shared scoreboard and ~8 game types.
+Gamedo (MERN) is a **port** of the .NET 10 / Blazor app *rundan* (https://github.com/jagduvi1/rundan)
+onto the **Glosan** MERN stack (MongoDB + Express + React/Vite + Socket.IO). A private, mobile-first
+party-games platform with a live shared scoreboard and ~8 game types. The product is branded **Gamedo**
+(gamedo.app); internal wire/storage identifiers intentionally keep the legacy `rundan` token — see below.
 
 ## Stack & layout
 - `backend/` — Express (CommonJS), Mongoose, Socket.IO. Entry `server.js` → `src/app.js`.
@@ -17,6 +18,13 @@ party-games platform with a live shared scoreboard and ~8 game types.
 - `frontend/.npmrc` sets `legacy-peer-deps=true` (react-helmet-async's peer range predates React 19).
 
 ## Conventions that matter (don't break these)
+- **Brand vs. legacy identifiers.** The product is branded **Gamedo** (gamedo.app) — all user-facing
+  text, titles, and logo say so (`frontend/public/assets/gamedo-*.svg`). But on-the-wire and on-disk
+  identifiers intentionally keep the legacy `rundan` token for backward compatibility: auth headers
+  (`x-rundan-participant` / `x-rundan-member` / `x-rundan-access`), localStorage keys (`rundan.*`), the
+  Mongo database name (`rundan`), and the `RUNDAN_HOST` env var. Do **not** rename these to `gamedo` —
+  it would break existing sessions/data. Code comments that reference the upstream .NET repo `rundan`
+  (`port of rundan's …`, `Rundan.Server/…`) are also intentional and accurate.
 - **Enum integer codes are load-bearing on the wire** — kept identical to the .NET app in both
   `backend/src/constants/enums.js` and `frontend/src/config/enums.js`. `ActivityType` starts at **1**;
   all others at 0. Keep the two files in sync.

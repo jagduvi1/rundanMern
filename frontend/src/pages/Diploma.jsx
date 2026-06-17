@@ -9,7 +9,7 @@ import { num } from '../utils/format';
 import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 export default function Diploma() {
-  useDocumentTitle('Diplom · Rundan');
+  useDocumentTitle('Diplom · Gamedo');
   const { id } = useParams();
 
   const [event, setEvent] = useState(null);
@@ -58,7 +58,7 @@ export default function Diploma() {
   return (
     <>
       <div className="diploma card stack center" style={{ textAlign: 'center', padding: '2rem 1.25rem' }}>
-        <img src="/assets/rundan-mark.svg" width={56} height={56} alt="" style={{ margin: '0 auto' }} />
+        <img src="/assets/gamedo-mark.svg" width={56} height={56} alt="" style={{ margin: '0 auto' }} />
         <div className="muted" style={{ letterSpacing: '.08em', textTransform: 'uppercase', fontSize: '.8rem' }}>
           Mästardiplom
         </div>
@@ -82,7 +82,7 @@ export default function Diploma() {
         ) : null}
 
         <div className="muted small" style={{ marginTop: 10 }}>
-          Rundan · {(event.activities || []).length} aktiviteter
+          Gamedo · {(event.activities || []).length} aktiviteter
         </div>
       </div>
 
