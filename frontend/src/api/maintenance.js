@@ -7,7 +7,6 @@ export const uploadImage = (file) => {
   return apiUpload('/admin/upload', fd); // → { url }
 };
 export const seedDemo = () => apiPost('/admin/seed', {});
-export const cleanAndSeed = (code) => apiPost('/admin/clean-and-seed', { code });
 export const verifyAdmin = () => apiGet('/admin/verify');
 // Reset question-library usage so the whole library can be drawn again. → { cleared }
 export const resetLibraryUsage = () => apiPost('/question-library/reset-usage', {});
