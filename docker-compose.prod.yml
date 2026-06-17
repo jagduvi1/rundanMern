@@ -51,7 +51,7 @@ services:
       - ACCESS_TOKEN_EXPIRES_IN=${ACCESS_TOKEN_EXPIRES_IN:-15m}
       - ADMIN_EMAILS=${ADMIN_EMAILS:-}
       - FRONTEND_URL=${FRONTEND_URL:?set FRONTEND_URL to https://your-domain}
-      - APP_NAME=${APP_NAME:-Gamedo}
+      - APP_NAME=${APP_NAME:-GameDo}
       # Cloudflare → Traefik → nginx = 3 trusted proxy hops.
       - TRUST_PROXY=${TRUST_PROXY:-3}
       - ACCESS_CODE=${ACCESS_CODE:-}

@@ -15,7 +15,7 @@ import { useToast } from '../components/Toast';
 import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 export default function Library() {
-  useDocumentTitle('Bibliotek · Gamedo');
+  useDocumentTitle('Bibliotek · GameDo');
   const { toast, show } = useToast();
 
   const [mine, setMine] = useState([]);

@@ -7,7 +7,7 @@ import { useDocumentTitle } from '../utils/useDocumentTitle';
 import Spinner from '../components/Spinner';
 
 export default function Login() {
-  useDocumentTitle('Logga in · Gamedo');
+  useDocumentTitle('Logga in · GameDo');
   const { login, requestMagicLink } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();

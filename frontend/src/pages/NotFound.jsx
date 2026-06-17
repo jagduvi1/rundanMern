@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 export default function NotFound() {
-  useDocumentTitle('Hittades inte · Gamedo');
+  useDocumentTitle('Hittades inte · GameDo');
   return (
     <div className="card stack">
       <h1>Hittades inte</h1>

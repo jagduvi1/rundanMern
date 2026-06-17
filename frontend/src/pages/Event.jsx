@@ -120,7 +120,7 @@ export default function Event() {
   const lastArrivalPostRef = useRef(0);
   const autoClaimedRef = useRef(false); // QR deep-link claim runs once
 
-  useDocumentTitle(`${event?.name || 'Evenemang'} · Gamedo`);
+  useDocumentTitle(`${event?.name || 'Evenemang'} · GameDo`);
 
   const proxy = getProxy();
   const proxyHere = isProxying() && proxy?.eventId === String(id);

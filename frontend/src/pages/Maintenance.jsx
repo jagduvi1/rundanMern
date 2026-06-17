@@ -11,7 +11,7 @@ import Spinner from '../components/Spinner';
 import { resetLibraryUsage, seedDemo } from '../api/maintenance';
 
 export default function Maintenance() {
-  useDocumentTitle('Underhåll · Gamedo');
+  useDocumentTitle('Underhåll · GameDo');
   const { isAdmin } = useAuth();
   const [busy, setBusy] = useState(null); // 'usage' | 'seed' | null
   const [msg, setMsg] = useState(null);

@@ -7,7 +7,7 @@ import { useDocumentTitle } from '../utils/useDocumentTitle';
 import Spinner from '../components/Spinner';
 
 export default function Register() {
-  useDocumentTitle('Skapa konto · Gamedo');
+  useDocumentTitle('Skapa konto · GameDo');
   const { register } = useAuth();
   const navigate = useNavigate();
 

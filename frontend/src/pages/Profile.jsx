@@ -20,7 +20,7 @@ import QrShareModal from '../components/QrShareModal';
 import Spinner from '../components/Spinner';
 
 export default function Profile() {
-  useDocumentTitle('Min profil · Gamedo');
+  useDocumentTitle('Min profil · GameDo');
   const { user } = useAuth();
   const { toast, show } = useToast();
 

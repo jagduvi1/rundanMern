@@ -7,7 +7,7 @@ import { apiPost } from '../api/client';
 import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 export default function ResetPassword() {
-  useDocumentTitle('Återställ lösenord · Gamedo');
+  useDocumentTitle('Återställ lösenord · GameDo');
   const [params] = useSearchParams();
   const token = params.get('token');
   const [password, setPassword] = useState('');

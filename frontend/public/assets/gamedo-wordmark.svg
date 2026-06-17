@@ -1,4 +1,4 @@
-<svg width="340" height="96" viewBox="0 0 340 96" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Gamedo">
+<svg width="340" height="96" viewBox="0 0 340 96" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="GameDo">
   <defs>
     <linearGradient id="gw" x1="8" y1="6" x2="88" y2="90" gradientUnits="userSpaceOnUse">
       <stop stop-color="#5B86FF"></stop>
@@ -8,5 +8,5 @@
   <rect x="0" y="0" width="96" height="96" rx="24" fill="url(#gw)"></rect>
   <path d="M39 31 L67 49 L39 67 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="9" stroke-linejoin="round" stroke-linecap="round"></path>
   <circle cx="73" cy="25" r="7" fill="#FB5530" stroke="#2F66EC" stroke-width="3.5"></circle>
-  <text x="116" y="62" font-family="'Bricolage Grotesque','Hanken Grotesk',sans-serif" font-size="48" font-weight="800" letter-spacing="-0.02em" fill="#0F2A31">Gamedo</text>
+  <text x="116" y="62" font-family="'Bricolage Grotesque','Hanken Grotesk',sans-serif" font-size="48" font-weight="800" letter-spacing="-0.02em" fill="#0F2A31">GameDo</text>
 </svg>

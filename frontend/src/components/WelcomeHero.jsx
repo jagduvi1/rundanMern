@@ -3,7 +3,7 @@
 // generalised to take the app name and an action callback as props.
 //
 // Props:
-//   appName : string  — shown as the big title (falls back to "Gamedo").
+//   appName : string  — shown as the big title (falls back to "GameDo").
 //   onAction: () => void — primary CTA handler. When omitted the button hides.
 //   actionLabel?: string — CTA text (default "Kom igång").
 
@@ -13,7 +13,7 @@ const heroStyle = {
   borderColor: 'transparent',
 };
 
-export default function WelcomeHero({ appName = 'Gamedo', onAction, actionLabel = 'Kom igång' }) {
+export default function WelcomeHero({ appName = 'GameDo', onAction, actionLabel = 'Kom igång' }) {
   return (
     <div className="card hero stack center" style={heroStyle}>
       <div

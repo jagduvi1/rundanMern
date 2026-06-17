@@ -21,12 +21,12 @@ async function main() {
   try {
     const res = await email.send({
       to,
-      subject: 'Gamedo — Mailgun test',
+      subject: 'GameDo — Mailgun test',
       html: email.wrapTemplate({
         title: 'It works! 🎉',
-        intro: 'This is a test email from Gamedo via Mailgun. If you can read this, transactional email is wired up correctly.',
+        intro: 'This is a test email from GameDo via Mailgun. If you can read this, transactional email is wired up correctly.',
       }),
-      text: 'It works! This is a test email from Gamedo via Mailgun.',
+      text: 'It works! This is a test email from GameDo via Mailgun.',
     });
     console.log('✅ Accepted by Mailgun. Message id:', res?.id || '(no id returned)');
   } catch (err) {
