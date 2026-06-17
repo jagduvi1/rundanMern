@@ -25,6 +25,7 @@ const GAMES = [
   { type: ActivityType.ScoreGame, emoji: '🔢', name: 'Poängspel', desc: 'Registrera poäng per runda', quickFill: false, manageHint: null },
   { type: ActivityType.WordGame, emoji: '🔤', name: 'Ordspel', desc: 'Bygg det längsta ordet', quickFill: false, manageHint: null },
   { type: ActivityType.MapPin, emoji: '📍', name: 'Kartnål', desc: 'Pricka in städer på kartan', quickFill: false, manageHint: null },
+  { type: ActivityType.Imposture, emoji: '🕵️', name: 'Imposture', desc: 'Hitta den hemliga impostorn', quickFill: false, manageHint: 'lägg till hemliga ord' },
 ];
 const gameOf = (type) => GAMES.find((g) => g.type === type);
 const TEAM_SIZES = [

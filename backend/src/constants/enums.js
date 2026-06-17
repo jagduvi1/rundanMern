@@ -15,6 +15,17 @@ const ActivityType = Object.freeze({
   MapPin: 6,
   MusicQuiz: 7,
   Memory: 8,
+  Imposture: 9,
+});
+
+// Imposture (the "find the impostor" word game) scoring scheme — host-selectable.
+//   CatchersOnly      : only players who vote the impostor score.
+//   Standard          : catchers score AND the impostor scores for surviving.
+//   StandardPlusGuess : Standard, plus a caught impostor may guess the word for a bonus.
+const ImpostureScoring = Object.freeze({
+  CatchersOnly: 0,
+  Standard: 1,
+  StandardPlusGuess: 2,
 });
 
 const ActivityStatus = Object.freeze({
@@ -94,6 +105,7 @@ const values = (e) => Object.values(e);
 
 module.exports = {
   ActivityType,
+  ImpostureScoring,
   ActivityStatus,
   QuestionKind,
   EventScoring,

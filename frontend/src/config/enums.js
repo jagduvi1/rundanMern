@@ -3,8 +3,9 @@
 
 export const ActivityType = Object.freeze({
   Quiz: 1, Tipspromenad: 2, Boule: 3, ScoreGame: 4,
-  WordGame: 5, MapPin: 6, MusicQuiz: 7, Memory: 8,
+  WordGame: 5, MapPin: 6, MusicQuiz: 7, Memory: 8, Imposture: 9,
 });
+export const ImpostureScoring = Object.freeze({ CatchersOnly: 0, Standard: 1, StandardPlusGuess: 2 });
 export const ActivityStatus = Object.freeze({ Draft: 0, Open: 1, Live: 2, Finished: 3 });
 export const QuestionKind = Object.freeze({ MultipleChoice: 0, TrueFalse: 1, FreeText: 2 });
 export const EventScoring = Object.freeze({ Cumulative: 0, Placement: 1 });
@@ -28,6 +29,7 @@ export const ActivityTypeLabel = Object.freeze({
   [ActivityType.MapPin]: 'Kartnål',
   [ActivityType.MusicQuiz]: 'Musikquiz',
   [ActivityType.Memory]: 'Memory',
+  [ActivityType.Imposture]: 'Imposture',
 });
 export const ActivityStatusLabel = Object.freeze({
   [ActivityStatus.Draft]: 'Utkast',

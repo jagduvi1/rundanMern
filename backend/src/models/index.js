@@ -13,6 +13,7 @@ module.exports = {
   Question: require('./Question'),
   Answer: require('./Answer'),
   ScoreEntry: require('./ScoreEntry'),
+  ImpostureVote: require('./ImpostureVote'),
   BracketMatch: require('./BracketMatch'),
   EventViewer: require('./EventViewer'),
   Slap: require('./Slap'),

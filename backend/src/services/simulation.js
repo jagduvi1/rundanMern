@@ -7,7 +7,7 @@
 // finishes the activity so the event placement total updates.
 
 const {
-  Activity, Participant, Question, Answer, ScoreEntry, BracketMatch, Slap,
+  Activity, Participant, Question, Answer, ScoreEntry, BracketMatch, Slap, ImpostureVote,
 } = require('../models');
 const bracket = require('./bracket');
 const { idStr } = require('./serializers');
@@ -51,12 +51,19 @@ async function clearResults(activity) {
     // Slaps reference the activity by a loose ref (no FK) — clear them too, else
     // the penalties linger in the standings after a reset.
     Slap.deleteMany({ activityId }),
+    // Imposture votes are per-round; drop them so a replay starts clean.
+    ImpostureVote.deleteMany({ activityId }),
   ]);
 
   // Drawn MapPin cities are embedded on the activity — clear them so re-opening
   // draws a fresh set instead of replaying them.
   if ((activity.mapCities || []).length > 0) {
     activity.mapCities = [];
+  }
+
+  // Clear the live Imposture round so a replay starts from round 1.
+  if (activity.impostureRound) {
+    activity.impostureRound = null;
   }
 
   // Clear any music-quiz "track started" timers so a replay begins fresh.
