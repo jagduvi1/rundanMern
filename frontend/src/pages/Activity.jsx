@@ -42,6 +42,7 @@ import HitsterHostPanel from '../components/HitsterHostPanel';
 import ArcadePlay from '../components/ArcadePlay';
 import ImposturePlay from '../components/ImposturePlay';
 import ImpostureHostPanel from '../components/ImpostureHostPanel';
+import { useSpotifyPlayer } from '../utils/spotifyPlayer';
 
 const POLL_MS = 4000;
 const PSESSION_KEY = (id) => `rundan.psession.${id}`;
@@ -114,6 +115,14 @@ export default function Activity() {
 
   const participantId = session?.participantId ?? session?.id ?? null;
   const canManage = !isPreviewMode() && !!activity?.canManage;
+
+  // Own the host's Spotify player HERE — above both the normal and the arcade
+  // returns — so toggling arcade mode never unmounts it and playback survives the
+  // switch. Whichever MusicHostPanel renders uses this instance instead of making
+  // its own. No-ops (null connection) for players, non-music activities and Hitster.
+  const hostSpotifyConnId = (canManage && activity?.type === ActivityType.MusicQuiz && !activity?.hitsterMode)
+    ? (activity?.spotifyConnectionId || null) : null;
+  const hostSpotifyPlayer = useSpotifyPlayer(hostSpotifyConnId);
 
   // ── Data loaders ────────────────────────────────────────────────────────────
   const refreshScoreboard = useCallback(async () => {
@@ -419,7 +428,7 @@ export default function Activity() {
           <details className="arcade-hostdock">
             <summary>🎵 Värdkontroller — starta spår</summary>
             <div className="arcade-hostdock-body">
-              <MusicHostPanel activity={activity} />
+              <MusicHostPanel activity={activity} player={hostSpotifyPlayer} />
             </div>
           </details>
         ) : null}
@@ -500,7 +509,7 @@ export default function Activity() {
       {canManage && activity.type === ActivityType.MusicQuiz && activity.status !== ActivityStatus.Draft ? (
         activity.hitsterMode
           ? <HitsterHostPanel activity={activity} />
-          : <MusicHostPanel activity={activity} participant={session} />
+          : <MusicHostPanel activity={activity} participant={session} player={hostSpotifyPlayer} />
       ) : null}
 
       {canManage && activity.type === ActivityType.Imposture && activity.status !== ActivityStatus.Draft ? (
