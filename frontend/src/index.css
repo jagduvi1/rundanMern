@@ -140,7 +140,7 @@ label { font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 6px;
 .error-text { color: var(--danger); font-size: 0.9rem; }
 .toast {
   position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0)); transform: translateX(-50%);
-  background: var(--text); color: #fff; padding: 11px 18px; border-radius: 999px;
+  background: var(--ok); color: #fff; padding: 11px 18px; border-radius: 999px;
   box-shadow: var(--shadow-lg); z-index: 100; font-size: 0.9rem;
 }
 @media (prefers-color-scheme: dark) {
