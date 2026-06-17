@@ -8,6 +8,7 @@
 // ranking truth (see spec §2).
 const { ActivityType, QuestionKind, ScoringMode } = require('../constants/enums');
 const { RuleViolation } = require('../middleware/error');
+const { choiceFieldFor } = require('./musicLookup');
 
 // MusicQuiz answer window in seconds: drives the player/host countdown and the
 // auto-finish cutoff, and (in Kahoot speed mode) caps the time penalty charged
@@ -264,7 +265,19 @@ function scoreAnswer(question, submission, ctx = {}) {
     const guessedYear = asksYear ? (yearGiven ? submission.year : null) : null;
     const yearPoints = scoreYear(guessedYear, question.releaseYear, points);
 
-    const isCorrect = songOk && artistOk;
+    // Kahoot (musicChoices): each track grades exactly ONE tapped component — the
+    // artist OR the song title, per the activity's choice mode (choiceFieldFor must
+    // match what the question route attached as options). Free-text quizzes grade
+    // song + artist (+ the release year when the track asks for it).
+    const kahoot = !!activity.musicChoices;
+    const choiceField = kahoot ? choiceFieldFor(activity, question) : null;
+    const gradeSong = kahoot ? (choiceField === 'title') : true;
+    const gradeArtist = kahoot ? (choiceField === 'artist') : true;
+    const gradeYear = !kahoot && asksYear;
+
+    const isCorrect = kahoot
+      ? ((gradeSong && songOk) || (gradeArtist && artistOk))
+      : (songOk && artistOk);
 
     let awarded;
     if (activity.speedScoring) {
@@ -272,7 +285,7 @@ function scoreAnswer(question, submission, ctx = {}) {
       // the seconds it took to answer (the host starts each track, which stamps
       // playStartedUtc). The 100 is split evenly across the components this track
       // grades, so a partial answer earns a proportional share:
-      //   • tap-the-artist (musicChoices): artist is the only component → 100
+      //   • tap mode (musicChoices): the single tapped component (artist OR title) → 100
       //   • free text: song + artist (+ release year when the track asks for it)
       // The release year folds into that same 100 (exact = full share, within
       // YEAR_TOLERANCE = half share) rather than adding points on top.
@@ -284,10 +297,6 @@ function scoreAnswer(question, submission, ctx = {}) {
       // rather than handing out an un-penalised 100.
       const timePenalty = Math.max(0, elapsed != null ? elapsed : SPEED_WINDOW_SECONDS);
 
-      const tapArtist = !!activity.musicChoices; // tap-the-artist mode (vs free text)
-      const gradeSong = !tapArtist;     // the song title is hidden in tap-the-artist mode
-      const gradeArtist = true;         // the artist is always gradeable
-      const gradeYear = !tapArtist && asksYear;
       const componentCount = (gradeSong ? 1 : 0) + (gradeArtist ? 1 : 0) + (gradeYear ? 1 : 0);
       const share = componentCount > 0 ? 100 / componentCount : 0;
 
@@ -302,7 +311,9 @@ function scoreAnswer(question, submission, ctx = {}) {
 
       awarded = base > 0 ? Math.max(0, Math.round(base) - timePenalty) : 0;
     } else {
-      awarded = (songOk ? points : 0) + (artistOk ? points : 0) + yearPoints;
+      awarded = (gradeSong && songOk ? points : 0)
+        + (gradeArtist && artistOk ? points : 0)
+        + (gradeYear ? yearPoints : 0);
     }
 
     return {

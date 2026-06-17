@@ -6,6 +6,15 @@ export const ActivityType = Object.freeze({
   WordGame: 5, MapPin: 6, MusicQuiz: 7, Memory: 8, Imposture: 9,
 });
 export const ImpostureScoring = Object.freeze({ CatchersOnly: 0, Standard: 1, StandardPlusGuess: 2 });
+// Kahoot music quiz: what players tap — the artist, the song title, or a per-track mix.
+export const MusicChoiceMode = Object.freeze({ Artist: 0, Title: 1, Mix: 2 });
+// A tap track tells the client which field it asks for via `choiceField`
+// ('artist' | 'title'; defaults to artist). These keep the prompt + the submitted
+// fields consistent across the player, arcade and host views.
+export const musicChoicePrompt = (field) => (field === 'title' ? 'Vilken är låten?' : 'Vem är artisten?');
+export const musicChoiceSubmit = (field, text) => (field === 'title'
+  ? { freeText: text, artistText: '' }
+  : { freeText: '', artistText: text });
 export const ActivityStatus = Object.freeze({ Draft: 0, Open: 1, Live: 2, Finished: 3 });
 export const QuestionKind = Object.freeze({ MultipleChoice: 0, TrueFalse: 1, FreeText: 2 });
 export const EventScoring = Object.freeze({ Cumulative: 0, Placement: 1 });

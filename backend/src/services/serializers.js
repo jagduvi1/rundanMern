@@ -92,6 +92,7 @@ function activityDto(a, extra = {}) {
     tournamentScoring: a.tournamentScoring,
     randomizeQuestions: a.randomizeQuestions,
     musicChoices: a.musicChoices,
+    musicChoiceMode: a.musicChoiceMode ?? 0,
     speedScoring: a.speedScoring,
     hitsterMode: !!a.hitsterMode,
     hitsterCardsToWin: a.hitsterCardsToWin ?? 10,

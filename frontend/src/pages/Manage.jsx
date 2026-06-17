@@ -435,7 +435,21 @@ export default function Manage() {
             ) : null}
             {!f.hitsterMode ? (
               <>
-                <CheckboxField checked={f.musicChoices} onChange={set('musicChoices')} label="Flerval — spelarna trycker på artisten" />
+                <CheckboxField checked={f.musicChoices} onChange={set('musicChoices')} label="Flerval — spelarna trycker på rätt svar" />
+                {f.musicChoices ? (
+                  <div className="field">
+                    <label htmlFor="m-music-choice-mode">Flervalet gäller</label>
+                    <select
+                      id="m-music-choice-mode"
+                      value={f.musicChoiceMode}
+                      onChange={(e) => set('musicChoiceMode')(Number(e.target.value))}
+                    >
+                      <option value={0}>Artist — tryck på rätt artist</option>
+                      <option value={1}>Låt — tryck på rätt låttitel</option>
+                      <option value={2}>Mix — varje låt frågar slumpvis om artist eller titel</option>
+                    </select>
+                  </div>
+                ) : null}
                 <CheckboxField checked={f.speedScoring} onChange={set('speedScoring')} label="Snabbhetspoäng — snabbare svar ger mer poäng" />
               </>
             ) : null}
@@ -833,6 +847,7 @@ function fieldsFrom(a) {
     mapCityCount: a.mapCityCount ?? 5,
     randomizeQuestions: !!a.randomizeQuestions,
     musicChoices: !!a.musicChoices,
+    musicChoiceMode: a.musicChoiceMode ?? 0,
     speedScoring: !!a.speedScoring,
     hitsterMode: !!a.hitsterMode,
     hitsterCardsToWin: a.hitsterCardsToWin ?? 10,
@@ -862,6 +877,7 @@ function buildBody(f) {
     targetValue: f.targetValue,
     randomizeQuestions: f.randomizeQuestions,
     musicChoices: f.musicChoices,
+    musicChoiceMode: f.musicChoiceMode,
     speedScoring: f.speedScoring,
     hitsterMode: f.hitsterMode,
     hitsterCardsToWin: f.hitsterCardsToWin,

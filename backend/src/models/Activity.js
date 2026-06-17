@@ -105,6 +105,9 @@ const activitySchema = new mongoose.Schema({
   // Quiz / music
   randomizeQuestions: { type: Boolean, default: false },
   musicChoices: { type: Boolean, default: false },
+  // 0 = Artist (default), 1 = Title, 2 = Mix — see MusicChoiceMode. Only meaningful
+  // when musicChoices is on; controls whether players tap the artist or the title.
+  musicChoiceMode: { type: Number, default: 0 },
   speedScoring: { type: Boolean, default: false },
   hitsterMode: { type: Boolean, default: false },
   hitsterCardsToWin: { type: Number, default: 10 },

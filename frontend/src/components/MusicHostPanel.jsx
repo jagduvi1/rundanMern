@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { startTrack } from '../api/music';
 import { getAdminQuestions, getQuestions } from '../api/questions';
 import { submitAnswer, getMyAnswers } from '../api/gameplay';
-import { ActivityStatus } from '../config/enums';
+import { ActivityStatus, musicChoicePrompt, musicChoiceSubmit } from '../config/enums';
 import { apiPost } from '../api/client';
 import { useSpotifyPlayer } from '../utils/spotifyPlayer';
 import { OptionButton, OptionKey, optionColor, feedbackStyle } from './QuizPlay';
@@ -103,7 +103,7 @@ export default function MusicHostPanel({ activity, participant, player = null })
     if (!aliveRef.current) return;
     if (qs) {
       const m = new Map();
-      for (const q of qs) m.set(String(q.id), q.options || []);
+      for (const q of qs) m.set(String(q.id), { options: q.options || [], field: q.choiceField || 'artist' });
       setOptionsById(m);
     }
     // Merge (never drop) so a refetch can't transiently wipe an optimistic answer.
@@ -209,8 +209,9 @@ export default function MusicHostPanel({ activity, participant, player = null })
     }
   }
 
-  // The host taps an artist option for the live track (same call players make).
-  async function submitChoice(t, optionText) {
+  // The host taps an option for the live track (same call players make) — the option
+  // is the artist or the title, per the track's choiceField.
+  async function submitChoice(t, optionText, field) {
     // Ignore taps while a submit is in flight or this track is already answered
     // (the backend dedups anyway, but this keeps the optimistic state consistent).
     if (!participant || answerBusyId || myAnswers.has(String(t.id))) return;
@@ -218,12 +219,15 @@ export default function MusicHostPanel({ activity, participant, player = null })
     setAnswerError(null);
     try {
       const res = await submitAnswer(activity.id, {
-        questionId: t.id, freeText: '', artistText: optionText, year: null,
+        questionId: t.id, ...musicChoiceSubmit(field, optionText), year: null,
       });
       if (!aliveRef.current) return;
+      // Store the SAME shape the server returns ({ freeText, artistText }) so the
+      // next loadChoices merge (which overwrites by questionId) doesn't blank the
+      // displayed answer — getMyAnswers has no `answerText` field.
       setMyAnswers((prev) => new Map(prev).set(String(t.id), {
         questionId: t.id,
-        artistText: optionText,
+        ...musicChoiceSubmit(field, optionText),
         isCorrect: res?.isCorrect,
         awardedPoints: res?.awardedPoints,
       }));
@@ -242,20 +246,24 @@ export default function MusicHostPanel({ activity, participant, player = null })
       // Correctness from the awarded score (authoritative, and works even when the
       // host hid the answers from themselves) — mirrors the player view's reveal.
       const gotIt = (mine.awardedPoints || 0) > 0;
+      // The tapped value lives in artistText (artist tracks) or freeText (title
+      // tracks) — whichever the track's choiceField submitted.
+      const answered = mine.artistText || mine.freeText;
       return (
         <div style={feedbackStyle(gotIt)}>
-          Du svarade: <b>{mine.artistText && mine.artistText.trim() ? mine.artistText : '—'}</b>
+          Du svarade: <b>{answered && answered.trim() ? answered : '—'}</b>
           {` ${gotIt ? '✓' : '✗'}`}
           {mine.awardedPoints != null ? <> · <b>+{mine.awardedPoints}</b></> : null}
         </div>
       );
     }
     if (!isLive) return null;
-    const opts = optionsById.get(String(t.id)) || [];
+    const entry = optionsById.get(String(t.id)) || { options: [], field: 'artist' };
+    const opts = entry.options;
     if (opts.length === 0) return <span className="muted small">Laddar svarsalternativ…</span>;
     return (
       <div className="stack" style={{ gap: '.3rem' }}>
-        <span className="muted small">Ditt svar (du tävlar också):</span>
+        <span className="muted small">Ditt svar (du tävlar också) — {musicChoicePrompt(entry.field)}</span>
         {opts.map((opt, oi) => (
           <OptionButton
             key={opt.id}
@@ -265,7 +273,7 @@ export default function MusicHostPanel({ activity, participant, player = null })
             mark=""
             state=""
             disabled={answerBusyId != null}
-            onClick={() => submitChoice(t, opt.text)}
+            onClick={() => submitChoice(t, opt.text, entry.field)}
           />
         ))}
         {answerError ? <div className="error-text">{answerError}</div> : null}

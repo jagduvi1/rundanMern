@@ -309,6 +309,8 @@ router.put('/:id', activityManager, asyncHandler(async (req, res) => {
     : null;
   activity.randomizeQuestions = !!r.randomizeQuestions;
   activity.musicChoices = !!r.musicChoices && activity.type === ActivityType.MusicQuiz;
+  activity.musicChoiceMode = activity.type === ActivityType.MusicQuiz
+    && [0, 1, 2].includes(Number(r.musicChoiceMode)) ? Number(r.musicChoiceMode) : 0;
   activity.speedScoring = !!r.speedScoring && activity.type === ActivityType.MusicQuiz;
   activity.hitsterMode = !!r.hitsterMode && activity.type === ActivityType.MusicQuiz;
   activity.hitsterCardsToWin = activity.hitsterMode

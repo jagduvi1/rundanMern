@@ -28,6 +28,16 @@ const ImpostureScoring = Object.freeze({
   StandardPlusGuess: 2,
 });
 
+// Kahoot-style music quiz: what players tap to identify the track.
+//   Artist : tap the correct artist (default — original behaviour)
+//   Title  : tap the correct song title
+//   Mix    : per track, randomly ask for the artist or the title
+const MusicChoiceMode = Object.freeze({
+  Artist: 0,
+  Title: 1,
+  Mix: 2,
+});
+
 const ActivityStatus = Object.freeze({
   Draft: 0,
   Open: 1,
@@ -106,6 +116,7 @@ const values = (e) => Object.values(e);
 module.exports = {
   ActivityType,
   ImpostureScoring,
+  MusicChoiceMode,
   ActivityStatus,
   QuestionKind,
   EventScoring,
