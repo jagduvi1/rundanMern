@@ -7,6 +7,10 @@ import { getSocket } from '../utils/socket';
 import { ServerEvents } from '../config/socketEvents';
 import Spinner from './Spinner';
 
+// A track is usable in Hitster only with a real release year — null/undefined/0
+// don't count (Hitster places cards by year).
+const hasReleaseYear = (t) => t.releaseYear != null && t.releaseYear !== 0;
+
 export default function HitsterHostPanel({ activity }) {
   const canPlayInApp = activity?.spotifyConnectionId != null;
   const { ready, play, pause, resume, activate } = useSpotifyPlayer(activity?.spotifyConnectionId || null);
@@ -26,7 +30,10 @@ export default function HitsterHostPanel({ activity }) {
     aliveRef.current = true;
     Promise.all([
       getHitsterState(activity.id),
-      getAdminQuestions(activity.id),
+      // reveal=true: the host runs the game, so they need the real release years
+      // (and titles) even when "hide answers from host" is on — otherwise every
+      // track comes back masked and the panel shows "0 spår med årtal redo".
+      getAdminQuestions(activity.id, true),
     ]).then(([s, q]) => {
       if (!aliveRef.current) return;
       setState(s);
@@ -128,12 +135,13 @@ export default function HitsterHostPanel({ activity }) {
     <div className="card stack">
       <h2 style={{ margin: 0 }}>🎵 Hitster — Värdpanel</h2>
       {error ? <div style={errorStyle}>{error}</div> : null}
+      <MissingYearWarning tracks={tracks} />
 
       {/* Not started yet */}
       {!state?.started ? (
         <div className="stack">
           <p className="muted">
-            {tracks.filter((t) => t.releaseYear != null).length} spår med årtal redo.
+            {tracks.filter(hasReleaseYear).length} spår med årtal redo.
             Starta spelet för att blanda och dela ut kort.
           </p>
           <button type="button" className="btn success" onClick={doStart} disabled={busy}>
@@ -200,19 +208,8 @@ export default function HitsterHostPanel({ activity }) {
             </div>
           )}
 
-          {/* Scoreboard */}
-          <div className="stack" style={{ gap: 6 }}>
-            <h3 style={{ margin: 0 }}>Tidslinjer</h3>
-            {state.teams.map((t) => (
-              <div key={t.participantId} className="row" style={{ gap: 8 }}>
-                <span className="grow">
-                  <b>{t.displayName}</b>
-                </span>
-                <span className="pill">{t.cardCount} kort</span>
-                <span className="muted small">bonus {t.bonusCount}/3</span>
-              </div>
-            ))}
-          </div>
+          {/* All teams' timelines (everyone plays against each other) */}
+          <HostTimelines teams={state.teams} />
         </div>
       ) : null}
 
@@ -229,11 +226,78 @@ export default function HitsterHostPanel({ activity }) {
           <button type="button" className="btn sm" onClick={doStart} disabled={busy}>
             Starta om
           </button>
+          <HostTimelines teams={state.teams} />
         </div>
       ) : null}
     </div>
   );
 }
+
+// All teams' timelines (placed cards are public — face-up years), shown to the
+// host so they can follow the race. Mirrors the player view's AllTimelines.
+function HostTimelines({ teams }) {
+  return (
+    <div className="stack" style={{ gap: 8 }}>
+      <h3 style={{ margin: 0 }}>Tidslinjer</h3>
+      {(teams || []).map((t) => (
+        <div key={t.participantId} className="stack" style={{ gap: 4, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
+          <div className="row">
+            <b className="grow">{t.displayName}</b>
+            <span className="pill">{t.cardCount} kort</span>
+            <span className="muted small">bonus {t.bonusCount}/3</span>
+          </div>
+          {(t.cards || []).length ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {t.cards.map((c, i) => (
+                <div key={i} style={hitsterCardStyle}>
+                  <b>{c.year}</b>
+                  <span className="small muted" style={{ textAlign: 'center' }}>{c.title}</span>
+                </div>
+              ))}
+            </div>
+          ) : <span className="muted small">Inga kort ännu.</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Warns the host about tracks that can't be used in Hitster (no release year)
+// and lists which ones, so they know what to fix in the track editor.
+function MissingYearWarning({ tracks }) {
+  const missing = (tracks || []).filter((t) => !hasReleaseYear(t));
+  if (missing.length === 0) return null;
+  return (
+    <details style={warnStyle}>
+      <summary style={{ cursor: 'pointer', fontWeight: 700 }}>
+        ⚠ {missing.length} spår saknar årtal — de hoppas över i Hitster
+      </summary>
+      <ul style={{ margin: '.5rem 0 0', paddingLeft: '1.2rem', fontWeight: 400 }}>
+        {missing.map((t) => (
+          <li key={t.id}>
+            {t.acceptedFreeTextAnswer || t.acceptedArtist || 'Namnlöst spår'}
+            {t.acceptedFreeTextAnswer && t.acceptedArtist ? ` — ${t.acceptedArtist}` : ''}
+          </li>
+        ))}
+      </ul>
+      <p className="muted small" style={{ margin: '.4rem 0 0', fontWeight: 400 }}>
+        Lägg till utgivningsår på dessa spår i låtredigeraren (Hantera) för att ta med dem.
+      </p>
+    </details>
+  );
+}
+
+const warnStyle = {
+  padding: '10px 12px', borderRadius: 'var(--radius-sm, 8px)',
+  background: '#fef3c7', color: '#92400e', fontWeight: 600,
+};
+
+const hitsterCardStyle = {
+  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+  padding: '6px 10px', borderRadius: 'var(--radius-sm, 8px)',
+  border: '2px solid var(--accent)', background: 'var(--accent-soft)',
+  minWidth: 64, maxWidth: 120,
+};
 
 const errorStyle = {
   padding: '10px 12px', borderRadius: 'var(--radius-sm, 8px)',
