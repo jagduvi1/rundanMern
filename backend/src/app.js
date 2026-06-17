@@ -92,11 +92,22 @@ app.use(
   })
 );
 
+// Rate limiting is keyed on the REAL client IP. Behind Cloudflare the origin only
+// ever sees Cloudflare edge IPs (req.ip), so every visitor would share one bucket
+// and trip the limit together — use Cloudflare's CF-Connecting-IP (the real client)
+// when present, falling back to req.ip (dev / direct hits). This is robust whatever
+// the exact proxy-hop count is.
+const clientKey = (req) => req.headers['cf-connecting-ip'] || req.ip;
+
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 600,
+  // Generous per-client: the activity page self-heal-polls (getActivity +
+  // getScoreboard) every 4s, so an active player makes many GETs in 15 min. This is
+  // the broad safety net; mutations are bounded more tightly by writeLimiter below.
+  max: 2000,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: clientKey,
   handler: (req, res) => res.status(429).json({ error: 'Too many requests, please try again later' }),
 });
 app.use('/api/', apiLimiter);
@@ -108,6 +119,7 @@ const writeLimiter = rateLimit({
   max: 400,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: clientKey,
   skip: (req) => req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS',
   handler: (req, res) => res.status(429).json({ error: 'Too many requests, please slow down.' }),
 });
