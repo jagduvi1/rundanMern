@@ -284,10 +284,10 @@ function scoreAnswer(question, submission, ctx = {}) {
       // rather than handing out an un-penalised 100.
       const timePenalty = Math.max(0, elapsed != null ? elapsed : SPEED_WINDOW_SECONDS);
 
-      const kahoot = !!activity.musicChoices;
-      const gradeSong = !kahoot;        // the song title is hidden in tap-the-artist mode
+      const tapArtist = !!activity.musicChoices; // tap-the-artist mode (vs free text)
+      const gradeSong = !tapArtist;     // the song title is hidden in tap-the-artist mode
       const gradeArtist = true;         // the artist is always gradeable
-      const gradeYear = !kahoot && asksYear;
+      const gradeYear = !tapArtist && asksYear;
       const componentCount = (gradeSong ? 1 : 0) + (gradeArtist ? 1 : 0) + (gradeYear ? 1 : 0);
       const share = componentCount > 0 ? 100 / componentCount : 0;
 

@@ -90,11 +90,14 @@ async function buildAnswerResult(participantId, question, answer, totalQuestions
     dto.correctArtist = question.acceptedArtist ?? null;
     dto.correctYear = question.releaseYear ?? null;
     dto.yearPoints = scoring.scoreYear(answer.guessedYear, question.releaseYear, question.points);
-    // Surface the answer time only when speed scoring actually drove the score.
-    if (activity && activity.speedScoring && question.playStartedUtc && answer.submittedUtc) {
-      dto.elapsedSeconds = Math.floor(
+    // Surface the answer time only when speed scoring actually drove the score —
+    // a wrong (0-point) answer wasn't timed into anything, so it shows no ⏱. Clamp
+    // at 0: an answer can't predate the start stamp (defends against clock skew).
+    if (activity && activity.speedScoring && question.playStartedUtc
+      && answer.submittedUtc && answer.awardedPoints > 0) {
+      dto.elapsedSeconds = Math.max(0, Math.floor(
         (new Date(answer.submittedUtc).getTime() - new Date(question.playStartedUtc).getTime()) / 1000,
-      );
+      ));
     }
   }
   return dto;
