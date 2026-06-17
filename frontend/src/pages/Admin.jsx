@@ -13,7 +13,6 @@ import { getLibraryAvailable, getLibraryTags } from '../api/library';
 import {
   listConnections, setClientId, validateConnection, deleteConnection,
 } from '../api/spotify';
-import { seedDemo, cleanAndSeed } from '../api/maintenance';
 import { ApiError } from '../api/client';
 import { ActivityStatus, EventScoring, SlapMode } from '../config/enums';
 import { startLogin, redirectUri, SPOTIFY_SCOPES } from '../utils/spotifyAuth';
@@ -65,15 +64,17 @@ export default function Admin() {
   const [connections, setConnections] = useState([]);
 
   const [clientIdInput, setClientIdInput] = useState(spotifyClientId || '');
-  const [seedCode, setSeedCode] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
-  const [confirmClean, setConfirmClean] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
 
-  const liveCount = events.reduce(
+  const activeEvents = events.filter((e) => !e.isArchived);
+  const archivedEvents = events.filter((e) => e.isArchived);
+
+  const liveCount = activeEvents.reduce(
     (n, e) => n + (e.activities || []).filter((a) => a.status === ActivityStatus.Live).length, 0,
   );
-  const totalActivities = events.reduce((n, e) => n + (e.activities || []).length, 0);
-  const pendingSlaps = events.filter((e) => e.pendingSlap).length;
+  const totalActivities = activeEvents.reduce((n, e) => n + (e.activities || []).length, 0);
+  const pendingSlaps = activeEvents.filter((e) => e.pendingSlap).length;
 
   const load = async () => {
     setLoading(true);
@@ -161,37 +162,6 @@ export default function Admin() {
     }
   };
 
-  const runSeed = async () => {
-    setBusy(true);
-    try {
-      await seedDemo();
-      show('Demodata laddat.');
-      await load();
-    } catch (err) {
-      show(err?.message || 'Seed misslyckades.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const runCleanSeed = async () => {
-    setConfirmClean(false);
-    const code = seedCode.trim();
-    if (!code) { show('Ange bekräftelsekoden.'); return; }
-    setBusy(true);
-    try {
-      await cleanAndSeed(code);
-      setSeedCode('');
-      show('Rensat och seedat.');
-      await load();
-    } catch (err) {
-      // A timeout can leave data in an unknown state — surface that distinctly.
-      show(err?.message || 'Rensningen misslyckades — data kan vara i okänt läge.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <>
       {toast}
@@ -199,7 +169,7 @@ export default function Admin() {
 
       {/* Stat widgets */}
       <div className="row wrap" style={{ gap: 10, marginBottom: 12 }}>
-        <Stat num={events.length} label={`Evenemang`} sub={liveCount > 0 ? `${liveCount} live nu` : null} />
+        <Stat num={activeEvents.length} label={`Evenemang`} sub={liveCount > 0 ? `${liveCount} live nu` : null} />
         <Stat num={totalActivities} label="Aktiviteter" />
         <Stat num={libraryCount} label="Frågebibliotek" sub={topics > 0 ? `${topics} ämnen` : null} />
       </div>
@@ -221,30 +191,24 @@ export default function Admin() {
 
         {loading ? (
           <span className="spinner" style={{ margin: '1rem auto' }} />
-        ) : events.length === 0 ? (
-          <p className="muted">Inga evenemang ännu.</p>
+        ) : activeEvents.length === 0 ? (
+          <p className="muted">Inga aktiva evenemang ännu.</p>
         ) : (
-          events.map((ev) => (
-            <div key={ev.id} className="card stack" style={{ background: 'var(--surface-2)' }}>
-              <div className="spread">
-                <h3 style={{ margin: 0 }}>{ev.name} <span className="muted small">· kod {ev.joinCode}</span></h3>
-                {ev.isComplete ? <Pill kind="ok">klar</Pill> : null}
-                {ev.pendingSlap ? <Pill kind="warn">nyp väntar</Pill> : null}
-              </div>
-              <div className="row wrap" style={{ gap: 6 }}>
-                <Pill>{scoringLabel(ev.scoring)}</Pill>
-                <Pill>{slapLabel(ev.slapMode)}</Pill>
-                <Pill>Lag om {ev.teamSize}</Pill>
-                {(ev.viewers || []).length > 0 ? <Pill>{ev.viewers.length} tittar</Pill> : null}
-              </div>
-              {statusSummary(ev.activities) ? <div className="muted small">{statusSummary(ev.activities)}</div> : null}
-              <div className="row">
-                <button type="button" className="btn sm" onClick={() => navigate(`/e/${ev.id}`)}>Öppna & redigera</button>
-                <button type="button" className="btn ghost sm danger" onClick={() => setConfirmDeleteId(ev.id)} disabled={busy}>Ta bort</button>
-              </div>
-            </div>
+          activeEvents.map((ev) => (
+            <EventRow key={ev.id} ev={ev} navigate={navigate} busy={busy} onDelete={setConfirmDeleteId} />
           ))
         )}
+
+        {archivedEvents.length > 0 ? (
+          <>
+            <button type="button" className="btn ghost block" onClick={() => setShowArchived((s) => !s)}>
+              {showArchived ? '▾' : '▸'} Arkiverade ({archivedEvents.length})
+            </button>
+            {showArchived ? archivedEvents.map((ev) => (
+              <EventRow key={ev.id} ev={ev} navigate={navigate} busy={busy} onDelete={setConfirmDeleteId} />
+            )) : null}
+          </>
+        ) : null}
       </div>
 
       {/* Spotify — per-user: each host connects their OWN Spotify app + account. */}
@@ -291,28 +255,6 @@ export default function Admin() {
         )}
       </div>
 
-      {/* Danger zone */}
-      <div className="card stack" style={{ borderColor: 'var(--danger)' }}>
-        <h2 style={{ margin: 0 }}>Farozon</h2>
-        <div className="row wrap">
-          <button type="button" className="btn ghost sm" onClick={runSeed} disabled={busy}>Ladda demodata</button>
-        </div>
-        <p className="muted small" style={{ marginTop: 4 }}>
-          "Rensa & seed" raderar allt och seedar om demon på nytt. Skriv bekräftelsekoden för att fortsätta.
-        </p>
-        <div className="row wrap">
-          <input
-            type="text"
-            className="grow"
-            value={seedCode}
-            onChange={(e) => setSeedCode(e.target.value)}
-            placeholder="Bekräftelsekod"
-            style={{ minWidth: 160 }}
-          />
-          <button type="button" className="btn sm danger" onClick={() => setConfirmClean(true)} disabled={busy || !seedCode.trim()}>Rensa & seed</button>
-        </div>
-      </div>
-
       <ConfirmDialog
         open={confirmDeleteId != null}
         title="Ta bort evenemang?"
@@ -322,16 +264,31 @@ export default function Admin() {
         onConfirm={() => removeEvent(confirmDeleteId)}
         onCancel={() => setConfirmDeleteId(null)}
       />
-      <ConfirmDialog
-        open={confirmClean}
-        title="Rensa & seed om?"
-        message="Detta raderar ALLT och seedar om demon. Säker?"
-        confirmLabel="Rensa allt"
-        danger
-        onConfirm={runCleanSeed}
-        onCancel={() => setConfirmClean(false)}
-      />
     </>
+  );
+}
+
+function EventRow({ ev, navigate, busy, onDelete }) {
+  return (
+    <div className="card stack" style={{ background: 'var(--surface-2)' }}>
+      <div className="spread">
+        <h3 style={{ margin: 0 }}>{ev.name} <span className="muted small">· kod {ev.joinCode}</span></h3>
+        {ev.isComplete ? <Pill kind="ok">klar</Pill> : null}
+        {ev.isArchived ? <Pill>arkiverad</Pill> : null}
+        {ev.pendingSlap ? <Pill kind="warn">nyp väntar</Pill> : null}
+      </div>
+      <div className="row wrap" style={{ gap: 6 }}>
+        <Pill>{scoringLabel(ev.scoring)}</Pill>
+        <Pill>{slapLabel(ev.slapMode)}</Pill>
+        <Pill>Lag om {ev.teamSize}</Pill>
+        {(ev.viewers || []).length > 0 ? <Pill>{ev.viewers.length} tittar</Pill> : null}
+      </div>
+      {statusSummary(ev.activities) ? <div className="muted small">{statusSummary(ev.activities)}</div> : null}
+      <div className="row">
+        <button type="button" className="btn sm" onClick={() => navigate(`/e/${ev.id}`)}>Öppna & redigera</button>
+        <button type="button" className="btn ghost sm danger" onClick={() => onDelete(ev.id)} disabled={busy}>Ta bort</button>
+      </div>
+    </div>
   );
 }
 
