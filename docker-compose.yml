@@ -24,7 +24,7 @@ services:
       - ACCESS_TOKEN_EXPIRES_IN=${ACCESS_TOKEN_EXPIRES_IN:-15m}
       - ADMIN_EMAILS=${ADMIN_EMAILS:-}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8080}
-      - APP_NAME=${APP_NAME:-Gamedo}
+      - APP_NAME=${APP_NAME:-GameDo}
       - ACCESS_CODE=${ACCESS_CODE:-}
       - SEED_CODE=${SEED_CODE:-CALLE}
       - SEED_ON_STARTUP=${SEED_ON_STARTUP:-false}

@@ -35,7 +35,7 @@ const TEAM_SIZES = [
 ];
 
 export default function CreateEvent() {
-  useDocumentTitle('Skapa evenemang · Gamedo');
+  useDocumentTitle('Skapa evenemang · GameDo');
   const navigate = useNavigate();
   const { eventId } = useParams();
   const { toast, show } = useToast();

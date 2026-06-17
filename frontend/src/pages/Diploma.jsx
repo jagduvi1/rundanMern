@@ -9,7 +9,7 @@ import { num } from '../utils/format';
 import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 export default function Diploma() {
-  useDocumentTitle('Diplom · Gamedo');
+  useDocumentTitle('Diplom · GameDo');
   const { id } = useParams();
 
   const [event, setEvent] = useState(null);
@@ -82,7 +82,7 @@ export default function Diploma() {
         ) : null}
 
         <div className="muted small" style={{ marginTop: 10 }}>
-          Gamedo · {(event.activities || []).length} aktiviteter
+          GameDo · {(event.activities || []).length} aktiviteter
         </div>
       </div>
 

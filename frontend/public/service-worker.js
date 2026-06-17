@@ -1,4 +1,4 @@
-/* Gamedo service worker — minimal: enables Web Push notifications for events.
+/* GameDo service worker — minimal: enables Web Push notifications for events.
    (No offline caching; the app is online-first behind a live scoreboard.) */
 
 self.addEventListener('install', () => self.skipWaiting());
@@ -7,7 +7,7 @@ self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim(
 self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data && event.data.text() }; }
-  const title = data.title || 'Gamedo';
+  const title = data.title || 'GameDo';
   const options = {
     body: data.body || '',
     icon: '/assets/gamedo-mark.svg',

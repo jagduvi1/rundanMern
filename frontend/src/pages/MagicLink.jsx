@@ -12,7 +12,7 @@ import { getMe } from '../api/me';
 import { useDocumentTitle } from '../utils/useDocumentTitle';
 
 export default function MagicLink() {
-  useDocumentTitle('Loggar in · Gamedo');
+  useDocumentTitle('Loggar in · GameDo');
   const { consumeMagicLink } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();

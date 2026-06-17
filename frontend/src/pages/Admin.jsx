@@ -51,7 +51,7 @@ function statusSummary(activities) {
 }
 
 export default function Admin() {
-  useDocumentTitle('Värdpanel · Gamedo');
+  useDocumentTitle('Värdpanel · GameDo');
   const navigate = useNavigate();
   const { toast, show } = useToast();
   // Spotify is per-user: the host's own Client ID lives on their account.

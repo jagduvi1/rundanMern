@@ -1,6 +1,6 @@
 {
-  "name": "Gamedo",
-  "short_name": "Gamedo",
+  "name": "GameDo",
+  "short_name": "GameDo",
   "description": "Kör gruppspel tillsammans med en delad live-resultattavla.",
   "start_url": "/",
   "display": "standalone",

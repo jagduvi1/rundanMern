@@ -18,7 +18,7 @@ const HTTP_TIMEOUT_MS = 6000; // matches the C# "music" named HttpClient (6 s)
 
 // Descriptive User-Agent — MusicBrainz rate-limits / rejects requests without one.
 function userAgent() {
-  const app = env.appName || 'Gamedo';
+  const app = env.appName || 'GameDo';
   const url = env.frontendUrl || 'https://gamedo.app';
   return `${app}/1.0 (${url})`;
 }

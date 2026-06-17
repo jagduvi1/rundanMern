@@ -22,7 +22,7 @@ function enabled() {
 }
 
 function userAgent() {
-  const app = env.appName || 'Gamedo';
+  const app = env.appName || 'GameDo';
   const url = env.frontendUrl || 'https://gamedo.app';
   return `${app}/1.0 (${url})`;
 }
