@@ -10,6 +10,8 @@ export const updateEvent = (id, body) => apiPut(`/events/${id}`, body, { eventId
 export const deleteEvent = (id) => apiDelete(`/events/${id}`, { eventId: id });
 export const setMembers = (id, userIds, adminUserIds) =>
   apiPut(`/events/${id}/members`, { userIds, adminUserIds }, { eventId: id });
+// Add the logged-in host themselves to the roster as an admin player.
+export const joinEventSelf = (id) => apiPost(`/events/${id}/join-self`, {}, { eventId: id });
 export const addEventAdmin = (id, email) =>
   apiPost(`/events/${id}/admins`, { email }, { eventId: id });
 export const removeEventAdmin = (id, accountId) =>

@@ -18,7 +18,7 @@ import {
   setEventCode, reorderActivities, setActivitiesStatus, arrive, joinEvent, claimEvent,
   claimEventAsMe, addEventAdmin, removeEventAdmin, deleteEvent,
   addActivityFromLibrary, restartEvent, setMemberPin, revokeMember, leaveEventSelf,
-  rosterClaimLink,
+  rosterClaimLink, joinEventSelf,
 } from '../api/events';
 import { inviteToEvent } from '../api/invites';
 import { getFriends } from '../api/me';
@@ -1175,6 +1175,22 @@ function HostControls({
     }
   };
 
+  // Add the logged-in host themselves to the roster as an admin player so they can
+  // take part in their own event (then "Spela som mig" lets them play).
+  const addMyself = async () => {
+    setLocalBusy(true);
+    try {
+      await joinEventSelf(id);
+      await onReload();
+      onToast('Du är tillagd som spelare (admin).');
+    } catch (err) {
+      onToast(err?.message || 'Kunde inte lägga till dig själv.');
+    } finally {
+      setLocalBusy(false);
+    }
+  };
+  const iAmMember = (event.members || []).some((m) => m.isMe);
+
   // Per-member claim PIN + QR. setMemberPin(generate) protects (or re-rolls) a
   // member; {pin:''} clears it (admins stay protected server-side). The QR encodes
   // a deep link that auto-claims that identity when the right person scans it.
@@ -1428,6 +1444,13 @@ function HostControls({
         <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Spelare &amp; evenemangsadmins{memberIds.size > 0 ? ` (${memberIds.size})` : ''}</summary>
         <div className="stack" style={{ marginTop: '.6rem' }}>
           <p className="muted">Välj spelare från rostret, och bocka <b>admin</b> för att göra någon till medvärd. Hantera rostret under <Link to="/admin/users">Personer</Link>.</p>
+          {iAmMember ? (
+            <p className="muted small" style={{ margin: 0 }}>✓ Du är med som spelare i det här evenemanget.</p>
+          ) : (
+            <button type="button" className="btn success" onClick={addMyself} disabled={anyBusy}>
+              + Lägg till mig som spelare (admin)
+            </button>
+          )}
           {allUsers.length === 0 ? (
             <p className="muted">Inga personer i rostret ännu.</p>
           ) : (

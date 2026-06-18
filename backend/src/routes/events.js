@@ -598,6 +598,62 @@ router.put(
   })
 );
 
+// POST /api/events/:id/join-self — a manager (host / co-host) adds THEMSELVES to the
+// roster as an admin player, so they can take part in their own event. Resolves (or
+// lazily creates) the account's own roster identity, then upserts an admin
+// EventMember and binds the slot to the account when free (so "Spela som mig" finds
+// it and it shows as the caller's own). Idempotent.
+router.post(
+  '/:id/join-self',
+  requireAuth,
+  eventManager,
+  asyncHandler(async (req, res) => {
+    const event = req.targetEvent;
+    const account = await Account.findById(req.user.id).select('userId displayName username');
+    if (!account) throw new RuleViolation('Account not found.', 404);
+
+    // The account's own roster User (created the first time the host joins as a player).
+    let { userId } = account;
+    if (!userId) {
+      const u = await User.create({
+        owner: account._id,
+        name: account.displayName || account.username || 'Värd',
+      });
+      account.userId = u._id;
+      await account.save();
+      userId = u._id;
+    }
+
+    // Bind this slot to the account only when the account isn't already a DIFFERENT
+    // roster member here — the (eventId, accountId) unique index forbids two.
+    const otherBound = await EventMember.findOne({
+      eventId: event._id, accountId: account._id, userId: { $ne: userId },
+    }).select('_id');
+
+    let member = await EventMember.findOne({ eventId: event._id, userId });
+    if (member) {
+      member.isAdmin = true;
+      if (!member.claimPin) member.claimPin = randomCode(6);
+      if (!member.accountId && !otherBound) member.accountId = account._id;
+      await member.save();
+    } else {
+      await EventMember.create({
+        eventId: event._id,
+        userId,
+        accountId: otherBound ? null : account._id,
+        isAdmin: true,
+        claimPin: randomCode(6),
+        addedUtc: new Date(),
+      });
+    }
+
+    eventChanged(idStr(event));
+    const dto = await loadEventDto(event, req.user?.id);
+    dto.canManage = true;
+    res.json(dto);
+  })
+);
+
 // PUT /api/events/:id/members/:userId/pin — set / clear / generate a roster member's
 // claim PIN (manager only). Body { pin? (set explicit), generate? (random) };
 // neither clears it — except an admin can never be left unprotected (clearing it
