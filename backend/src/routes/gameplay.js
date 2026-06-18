@@ -329,14 +329,41 @@ async function recordScore(activity, req) {
     throw new RuleViolation('That value is out of range.');
   }
 
+  const perPlayer = activity.scoreEntryMode === ScoreEntryMode.PerPlayer;
+  const singleReading = [Measurement.TimeSeconds, Measurement.Millimetres].includes(activity.measurement);
+
+  // Fairness for uneven teams (per-player mode): each `round` is ONE player RUN, so a
+  // player on a short-handed team can take extra runs and the team still produces as
+  // many scoring entries as a full team. The team is capped at the biggest team's
+  // player count, so no team can pull ahead by over-running. (The UI also gates this;
+  // this is the authoritative check.)
+  if (perPlayer && target.isTeam) {
+    const teamDocs = await Participant.find({ activityId: activity._id, isTeam: true })
+      .select('members').lean();
+    const targetRuns = teamDocs.reduce((m, t) => Math.max(m, (t.members || []).length), 1);
+    const isReplace = await ScoreEntry.exists({
+      activityId: activity._id, participantId: target._id, userId: scoredByUserId, round,
+    });
+    if (!isReplace) {
+      const teamRuns = await ScoreEntry.countDocuments({
+        activityId: activity._id, participantId: target._id,
+      });
+      if (teamRuns >= targetRuns) {
+        throw new RuleViolation('Laget har redan använt alla sina körningar.', 409);
+      }
+    }
+  }
+
   // Replace prior reading(s) so a value can't be padded by re-submitting:
-  //  - time/length is a SINGLE reading per team/player → replace all of theirs;
-  //  - point scores are per-round → replace just this (participant, round[, player]),
-  //    so re-submitting a round overwrites it instead of stacking (otherwise a player
-  //    could spam round 1 to inflate their own team's total without limit).
+  //  - per-player: one reading per (player, run) — runs accumulate so a short team's
+  //    player can take extra runs to match a full team;
+  //  - team measured (time/length): a SINGLE reading per team → replace all of theirs;
+  //  - team points: per-round → replace just this round so it overwrites, not stacks.
   const dedupe = { activityId: activity._id, participantId: target._id };
-  if (activity.scoreEntryMode === ScoreEntryMode.PerPlayer) dedupe.userId = scoredByUserId;
-  if (![Measurement.TimeSeconds, Measurement.Millimetres].includes(activity.measurement)) {
+  if (perPlayer) {
+    dedupe.userId = scoredByUserId;
+    dedupe.round = round;
+  } else if (!singleReading) {
     dedupe.round = round; // multi-round point games still sum ACROSS distinct rounds
   }
   await ScoreEntry.deleteMany(dedupe);
