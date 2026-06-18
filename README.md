@@ -119,4 +119,7 @@ Web Push (`VAPID_*`), email (`MAILGUN_API_KEY` + `MAILGUN_DOMAIN`), shared site 
 
 ## License
 
-MIT. The original Rundan app is by [@jagduvi1](https://github.com/jagduvi1).
+[GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0). Because GameDo is intended to run as a
+network service, the AGPL's network-use clause (section 13) requires that users interacting with a
+deployed instance be able to obtain its complete source. The original Rundan app is by
+[@jagduvi1](https://github.com/jagduvi1).
