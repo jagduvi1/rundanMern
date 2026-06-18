@@ -188,6 +188,13 @@ export default function TipspromenadPlay({ activity, participant }) {
     label: `Fråga ${q.order}`,
     color: answered.has(String(q.id)) ? '#16a34a' : '#2563eb',
   }));
+  // Station geofence zones — show how close you must get to trigger each station.
+  const circles = located.map((q) => ({
+    lat: q.latitude,
+    lng: q.longitude,
+    radiusMeters: radiusOf(q),
+    color: answered.has(String(q.id)) ? '#16a34a' : '#2563eb',
+  }));
   const pins = coords ? [{ lat: coords.lat, lng: coords.lng }] : [];
 
   return (
@@ -206,7 +213,7 @@ export default function TipspromenadPlay({ activity, participant }) {
           atNearest={atNearest}
           distances={distances}
         />
-        <MapView center={mapCenter(located)} markers={markers} pins={pins} fitToMarkers height="300px" />
+        <MapView center={mapCenter(located)} markers={markers} circles={circles} pins={pins} fitToMarkers height="300px" />
       </div>
 
       <div className="card stack">
