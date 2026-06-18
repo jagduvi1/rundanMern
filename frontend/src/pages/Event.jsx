@@ -56,6 +56,8 @@ import Pill from '../components/Pill';
 import SlapCeremony from '../components/SlapCeremony';
 import QrShareModal from '../components/QrShareModal';
 import MapView from '../components/MapView';
+import ImageUploader from '../components/ImageUploader';
+import RichTextEditor from '../components/RichTextEditor';
 
 const ARRIVAL_RADIUS = 40;
 const HOST_TYPES = [
@@ -1090,6 +1092,7 @@ function HostControls({
   const [details, setDetails] = useState({
     name: event.name,
     description: event.description ?? '',
+    imageUrl: event.imageUrl ?? null,
     teamSize: event.teamSize,
     scoring: event.scoring,
     teamShuffle: event.teamShuffle,
@@ -1264,6 +1267,7 @@ function HostControls({
       await updateEvent(id, {
         name: details.name.trim(),
         description: details.description,
+        imageUrl: details.imageUrl,
         teamSize: Number(details.teamSize),
         scoring: details.scoring,
         teamShuffle: details.teamShuffle,
@@ -1577,6 +1581,14 @@ function HostControls({
           <div className="field">
             <label htmlFor="ev-name">Namn</label>
             <input type="text" id="ev-name" value={details.name} onChange={(e) => setDetails((d) => ({ ...d, name: e.target.value }))} maxLength={80} />
+          </div>
+          <div className="field">
+            <label>Beskrivning</label>
+            <RichTextEditor value={details.description || ''} onChange={(v) => setDetails((d) => ({ ...d, description: v }))} placeholder="Vad handlar dagen om?" />
+          </div>
+          <div className="field">
+            <label>Bild (valfritt)</label>
+            <ImageUploader value={details.imageUrl} onChange={(url) => setDetails((d) => ({ ...d, imageUrl: url }))} />
           </div>
           <div className="row wrap">
             <div className="field grow">
