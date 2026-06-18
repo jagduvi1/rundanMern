@@ -174,10 +174,14 @@ function questionAdminDto(q, { hidden = false } = {}) {
   if (hidden) {
     return {
       id: idStr(q), order: q.order, text: '', kind: q.kind, points: q.points,
-      imageUrl: null, latitude: null, longitude: null, radiusMeters: null,
-      // Keep spotifyUrl even when the answer is hidden: the host still needs it to
-      // PLAY the track (the "▶ Spela" / "Spotify ↗" controls). It's not a real leak —
-      // the host authored the answers; "hide" just keeps them off-screen while playing.
+      imageUrl: null,
+      // Keep the geofence (latitude/longitude/radiusMeters) AND spotifyUrl even when
+      // the answer is hidden: the host still needs them to MANAGE the station (place
+      // it on the map) and PLAY the track. They're not a real leak — the host
+      // authored the station placement; "hide" only keeps the QUESTION + ANSWER
+      // off-screen while the host also plays. Nulling the geo made a placed station
+      // look unplaced (and re-editing would wipe it).
+      latitude: q.latitude ?? null, longitude: q.longitude ?? null, radiusMeters: q.radiusMeters ?? null,
       acceptedFreeTextAnswer: null, spotifyUrl: q.spotifyUrl ?? null, acceptedArtist: null, releaseYear: null,
       options: [], hidden: true, hasLocation, isComplete: true,
     };
