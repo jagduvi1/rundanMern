@@ -13,6 +13,7 @@ import { useBootstrap } from '../contexts/BootstrapContext';
 import { getProxy, isProxying, clearProxy } from '../utils/appState';
 import AppMenu from './AppMenu';
 import VerifyBanner from './VerifyBanner';
+import InstallBanner from './InstallBanner';
 
 // Stop a host proxy ("playing for X"). The proxy is a read-only OVERLAY — the
 // proxied tokens live only in the proxy object (never written to the device's own
@@ -72,6 +73,7 @@ export default function Layout({ children }) {
       ) : null}
 
       <VerifyBanner />
+      <InstallBanner />
 
       <main className="container">{children}</main>
 

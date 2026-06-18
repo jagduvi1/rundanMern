@@ -13,6 +13,13 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600..800&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" />
     <link rel="icon" type="image/svg+xml" href="/assets/gamedo-mark.svg" />
     <link rel="manifest" href="/manifest.json" />
+    <!-- iOS home-screen install (Web Push + foreground geofence need an installed PWA).
+         iOS ignores the manifest icon, so an apple-touch-icon PNG is required. -->
+    <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="GameDo" />
     <title>GameDo</title>
   </head>
   <body>
