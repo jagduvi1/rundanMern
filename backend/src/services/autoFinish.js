@@ -27,13 +27,26 @@ async function tryAutoFinishScoreGame(activity) {
   let expected;
   let recorded;
   if (activity.scoreEntryMode === ScoreEntryMode.PerPlayer) {
-    // One score per player on every team.
-    expected = teams.reduce((sum, t) => sum + (t.members || []).length, 0);
+    // Run-based fairness for uneven teams: every team gets the SAME number of runs
+    // (= the biggest team's player count); a short-handed team's players take extra
+    // runs to match a full team. Complete once each scoreable team has recorded its
+    // targetRuns runs — counted the SAME way as the per-run cap in
+    // routes/gameplay.js recordScore() (total ScoreEntries per team, capped at
+    // targetRuns), so "host sees done" and "auto-finish fires" stay in lockstep.
+    const targetRuns = teams.reduce((m, t) => Math.max(m, (t.members || []).length), 1);
+    const playable = teams.filter((t) => (t.members || []).length > 0);
+    expected = playable.length * targetRuns;
     const rows = await ScoreEntry.find({
-      activityId: activity._id, participantId: { $in: teamIds }, userId: { $ne: null },
-    }).select('participantId userId').lean();
-    const seen = new Set(rows.map((s) => `${idStr(s.participantId)}:${idStr(s.userId)}`));
-    recorded = seen.size;
+      activityId: activity._id, participantId: { $in: teamIds },
+    }).select('participantId').lean();
+    const runsByTeam = new Map();
+    for (const r of rows) {
+      const k = idStr(r.participantId);
+      runsByTeam.set(k, (runsByTeam.get(k) || 0) + 1);
+    }
+    recorded = playable.reduce(
+      (sum, t) => sum + Math.min(runsByTeam.get(idStr(t._id)) || 0, targetRuns), 0,
+    );
   } else {
     // Whole team per round; time/length is a single reading (no rounds).
     const rounds = [Measurement.TimeSeconds, Measurement.Millimetres].includes(activity.measurement)
