@@ -66,6 +66,29 @@ export default function BouleBoard({
   const historyMaxRound = history.length > 0 ? Math.max(...history.map((s) => s.round)) : 1;
   const maxRound = perPlayer ? 1 : Math.max(Math.max(1, activity.roundCount || 1), historyMaxRound);
 
+  // Fairness for uneven teams (per-player mode): every team gets as many RUNS as the
+  // biggest team's player count, so a short-handed team's players take extra runs and
+  // the team still produces as many scoring entries as a full team. Each team is
+  // capped at that target. A `round` here is one player RUN.
+  const targetRuns = useMemo(
+    () => (perPlayer && teams.length > 0
+      ? teams.reduce((m, t) => Math.max(m, (t.members || []).length), 1) : 1),
+    [perPlayer, teams],
+  );
+  const runsByTeam = useMemo(() => {
+    const m = new Map();
+    for (const s of history) m.set(String(s.participantId), (m.get(String(s.participantId)) || 0) + 1);
+    return m;
+  }, [history]);
+  const runsByPlayer = useMemo(() => {
+    const m = new Map();
+    for (const s of history) {
+      const k = `${s.participantId}:${s.userId}`;
+      m.set(k, (m.get(k) || 0) + 1);
+    }
+    return m;
+  }, [history]);
+
   // ── The units to score ───────────────────────────────────────────────────────
   const units = useMemo(() => {
     if (teams.length > 0) {
@@ -225,13 +248,24 @@ export default function BouleBoard({
     // (single-reading games deleteMany first) and can prematurely auto-finish a
     // team game with an all-zero board. Mirrors the .NET guard (points <= 0).
     if (!(value > 0)) return;
+    // Per-player: each save is one RUN. While the team is under its target, a save
+    // adds the next run; once the team is full it replaces the player's last run (so
+    // they can still correct it without exceeding the cap).
+    let runRound = round;
+    if (perPlayer) {
+      const teamRuns = runsByTeam.get(String(unit.participantId)) || 0;
+      const playerRuns = runsByPlayer.get(`${unit.participantId}:${unit.userId}`) || 0;
+      if (teamRuns < targetRuns) runRound = playerRuns + 1;
+      else if (playerRuns > 0) runRound = playerRuns;
+      else { setError('Laget har redan använt alla sina körningar.'); return; }
+    }
     setBusy(true);
     setError(null);
     try {
       await recordScore(activity.id, {
         participantId: unit.participantId,
         userId: perPlayer ? unit.userId : undefined,
-        round: perPlayer ? 1 : round,
+        round: perPlayer ? runRound : round,
         points: value,
       });
       setPending((p) => ({ ...p, [unit.key]: 0 }));
@@ -281,11 +315,13 @@ export default function BouleBoard({
   // Progress (host view): how many of the expected slots are recorded. Only
   // meaningful for an event with generated teams — a standalone game has no
   // well-defined expected count (mirrors the .NET Progress()/StructureNote gate).
-  const expectedSlots = teams.length === 0 ? 0 : (perPlayer ? units.length : units.length * maxRound);
+  const expectedSlots = teams.length === 0
+    ? 0
+    : (perPlayer ? teams.length * targetRuns : units.length * maxRound);
   const recordedSlots = useMemo(() => {
     const seen = new Set();
     for (const s of history) {
-      if (perPlayer) { if (s.userId) seen.add(`${s.participantId}:${s.userId}`); }
+      if (perPlayer) { if (s.userId) seen.add(`${s.participantId}:${s.userId}:${s.round}`); }
       else seen.add(`${s.participantId}:${s.round}`);
     }
     return seen.size;
@@ -325,6 +361,14 @@ export default function BouleBoard({
           {canManage && expectedSlots > 0 ? ` · ${recordedSlots}/${expectedSlots} registrerade.` : ''}
         </div>
 
+        {perPlayer && targetRuns > 1 ? (
+          <div className="muted small">
+            Ojämna lag: varje lag får {targetRuns} körningar totalt. Ett lag med färre spelare
+            låter en spelare köra flera gånger tills laget når {targetRuns} — så alla lag får
+            lika många försök.
+          </div>
+        ) : null}
+
         {courts.length > 0 ? (
           <div className="row wrap" style={{ gap: 6 }}>
             <span className="muted small">{activity.courtLabel || 'Banor'}:</span>
@@ -345,9 +389,22 @@ export default function BouleBoard({
               const paused = sw[u.key]?.start == null && (sw[u.key]?.accum || 0) > 0;
               const remoteRunning = remote[u.key] != null;
               const val = Number(pending[u.key]) || 0;
+              // Per-player fairness: how many runs this player + their team have used,
+              // and whether the team is full with no run left for this player.
+              const teamRuns = perPlayer ? (runsByTeam.get(String(u.participantId)) || 0) : 0;
+              const playerRuns = perPlayer ? (runsByPlayer.get(`${u.participantId}:${u.userId}`) || 0) : 0;
+              const teamFull = perPlayer && targetRuns > 1 && teamRuns >= targetRuns && playerRuns === 0;
               return (
                 <div key={u.key} className="row" style={{ borderTop: '1px solid var(--border)', paddingTop: '.6rem', marginTop: '.6rem' }}>
-                  <span className="grow"><b>{u.name}</b></span>
+                  <span className="grow">
+                    <b>{u.name}</b>
+                    {perPlayer && targetRuns > 1 ? (
+                      <span className="muted small" style={{ marginLeft: 6 }}>
+                        {playerRuns > 0 ? `· ${playerRuns} körning${playerRuns === 1 ? '' : 'ar'} ` : ''}
+                        · lag {teamRuns}/{targetRuns}
+                      </span>
+                    ) : null}
+                  </span>
 
                   {isPoints ? (
                     <div style={stepperWrap}>
@@ -387,7 +444,8 @@ export default function BouleBoard({
                   <button
                     className="btn sm success"
                     onClick={() => record(u)}
-                    disabled={busy || val <= 0 || (measuresTime && (running || paused || remoteRunning))}
+                    disabled={busy || val <= 0 || teamFull || (measuresTime && (running || paused || remoteRunning))}
+                    title={teamFull ? `Laget har redan kört ${targetRuns} gånger` : undefined}
                   >
                     {isPoints ? 'Lägg till' : 'Spara'}
                   </button>
