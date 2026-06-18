@@ -326,6 +326,15 @@ label { font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 6px;
   background: linear-gradient(90deg, #2ee6c8, #ffd23d 55%, #ff4d4d); transition: transform 0.2s linear; }
 .arcade-secs { text-align: center; font-weight: 800; font-size: 13px; opacity: 0.85; margin-top: 6px; }
 .arcade-ask { margin-top: 12px; text-align: center; font-family: var(--font-display); font-weight: 800; opacity: 0.85; }
+/* Hitster spectator flip card: face-down while a song plays, flips to reveal on placement */
+.hitster-flip { perspective: 800px; width: 104px; height: 144px; margin: 0 auto; }
+.hitster-flip-inner { position: relative; width: 100%; height: 100%; transition: transform .55s cubic-bezier(.2,.7,.2,1); transform-style: preserve-3d; }
+.hitster-flip.revealed .hitster-flip-inner { transform: rotateY(180deg); }
+.hitster-face { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 8px; border-radius: 12px; backface-visibility: hidden; -webkit-backface-visibility: hidden; box-shadow: 0 4px 12px rgba(0,0,0,.18); }
+.hitster-back { background: linear-gradient(135deg, var(--accent, #7c3aed), #4c1d95); color: #fff; border: 2px solid rgba(255,255,255,.35); }
+.hitster-front { transform: rotateY(180deg); border: 2px solid var(--accent, #7c3aed); background: var(--accent-soft, #f3f0ff); color: var(--text, #1a1a1a); }
+.hitster-front.ok { border-color: #16a34a; background: #dcfce7; color: #166534; }
+.hitster-front.wrong { border-color: #dc2626; background: #fee2e2; color: #991b1b; }
 .arcade-tiles { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
 .arcade-tiles:has(> :nth-child(3)) { grid-template-rows: 1fr 1fr; }
 .arcade-tile { position: relative; border: none; border-radius: 20px; color: #fff; cursor: pointer; overflow: hidden;
