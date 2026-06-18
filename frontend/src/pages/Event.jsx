@@ -768,14 +768,19 @@ export default function Event() {
         if (located.length === 0) return null;
         const avgLat = located.reduce((s, a) => s + a.latitude, 0) / located.length;
         const avgLng = located.reduce((s, a) => s + a.longitude, 0) / located.length;
+        const colorOf = (a) => (a.status === ActivityStatus.Finished ? '#16a34a' : a.status === ActivityStatus.Live ? '#f59e0b' : '#2563eb');
         const markers = located.map((a) => ({
           lat: a.latitude,
           lng: a.longitude,
           label: `${a.order}. ${a.title}`,
-          color: a.status === ActivityStatus.Finished ? '#16a34a' : a.status === ActivityStatus.Live ? '#f59e0b' : '#2563eb',
+          color: colorOf(a),
         }));
+        // Show the arrival geofence for activities that have one (Tipspromenad/MapPin).
+        const circles = located
+          .filter((a) => a.radiusMeters > 0)
+          .map((a) => ({ lat: a.latitude, lng: a.longitude, radiusMeters: a.radiusMeters, color: colorOf(a) }));
         const pins = coords ? [{ lat: coords.lat, lng: coords.lng }] : [];
-        return <MapView center={[avgLat, avgLng]} markers={markers} pins={pins} fitToMarkers height="260px" />;
+        return <MapView center={[avgLat, avgLng]} markers={markers} circles={circles} pins={pins} fitToMarkers height="260px" />;
       })()}
       {activities.length === 0 ? (
         <p className="muted">Inga aktiviteter ännu{canManage ? ' — lägg till den första i värdkontrollerna.' : '.'}</p>
