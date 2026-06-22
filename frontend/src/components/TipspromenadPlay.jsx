@@ -43,7 +43,7 @@ export default function TipspromenadPlay({ activity, participant }) {
   const [loadError, setLoadError] = useState(null);
 
   const notified = useRef(new Set()); // one-time arrival vibrate per question id
-  const { coords, error: geoError, start } = useGeolocation();
+  const { coords, error: geoError, start, refresh, refreshing } = useGeolocation();
 
   useEffect(() => {
     let alive = true;
@@ -207,6 +207,16 @@ export default function TipspromenadPlay({ activity, participant }) {
           distances={distances}
         />
         <MapView center={mapCenter(located)} markers={markers} pins={pins} fitToMarkers height="300px" />
+        <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+          <button type="button" className="btn ghost sm" onClick={refresh} disabled={refreshing}>
+            {refreshing ? 'Uppdaterar…' : '📍 Uppdatera min position'}
+          </button>
+          <span className="muted small grow">
+            {coords
+              ? `Senast uppdaterad${coords.accuracy ? ` · ±${Math.round(coords.accuracy)} m` : ''}. Positionen uppdateras automatiskt då och då — tryck för en färsk koll när du kommit fram.`
+              : 'Tryck för att hämta din position.'}
+          </span>
+        </div>
       </div>
 
       <div className="card stack">
