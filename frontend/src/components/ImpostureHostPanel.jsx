@@ -74,11 +74,20 @@ export default function ImpostureHostPanel({ activity }) {
             <b className="grow">Runda {state.round}</b>
             <span className="pill">{phase === PHASE.CLUES ? 'Ledord' : phase === PHASE.VOTING ? 'Röstning' : 'Avslöjad'}</span>
           </div>
-          <div>Hemligt ord: <b>{state.word}</b>{state.category ? <span className="muted small"> · {state.category}</span> : null}</div>
-          <div>
-            Impostor{(state.impostors || []).length > 1 ? 'er' : ''}:{' '}
-            <b>{(state.impostors || []).map((i) => i.displayName).join(', ') || '—'}</b>
-          </div>
+          {state.hostPlaying && state.word == null ? (
+            <div className="muted small">
+              🔒 Du spelar också — ditt hemliga ord och din roll syns i din spelvy ovan.
+              Ordet och impostorn visas här när du trycker <b>Avslöja</b>.
+            </div>
+          ) : (
+            <>
+              <div>Hemligt ord: <b>{state.word}</b>{state.category ? <span className="muted small"> · {state.category}</span> : null}</div>
+              <div>
+                Impostor{(state.impostors || []).length > 1 ? 'er' : ''}:{' '}
+                <b>{(state.impostors || []).map((i) => i.displayName).join(', ') || '—'}</b>
+              </div>
+            </>
+          )}
           {state.tally ? (
             <div className="stack" style={{ gap: 2 }}>
               <span className="muted small">Röster ({state.voteCount} av {state.participantCount}):</span>
