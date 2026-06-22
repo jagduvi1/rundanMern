@@ -19,7 +19,7 @@ import { vibrate } from '../utils/vibrate';
 import MapView from './MapView';
 import Spinner from './Spinner';
 import QuizPlay, {
-  OptionButton, OptionKey, optionColor, feedbackStyle, seededShuffle,
+  OptionButton, OptionKey, optionColor, feedbackStyle, seededShuffle, shuffleQuestionOptions,
 } from './QuizPlay';
 
 const DEFAULT_RADIUS_M = 40;
@@ -51,6 +51,7 @@ export default function TipspromenadPlay({ activity, participant }) {
     (async () => {
       try {
         let qs = await getQuestions(activity.id);
+        qs = shuffleQuestionOptions(qs, participant?.id);
         if (activity.randomizeQuestions) qs = seededShuffle(qs, participant?.id);
         const mine = await getMyAnswers(activity.id);
         if (!alive) return;
