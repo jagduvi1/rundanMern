@@ -1267,6 +1267,9 @@ function HostControls({
     }
   };
   const iAmMember = (event.members || []).some((m) => m.isMe);
+  // The roster userId of the slot that's "me" (the logged-in user running the app),
+  // so the picker + roster lists can clearly mark which player is you.
+  const myMemberId = (event.members || []).find((m) => m.isMe)?.id ?? null;
 
   // Per-member claim PIN + QR. setMemberPin(generate) protects (or re-rolls) a
   // member; {pin:''} clears it (admins stay protected server-side). The QR encodes
@@ -1537,7 +1540,7 @@ function HostControls({
                 <div key={u.id} className="row">
                   <label className="row grow" style={{ fontWeight: 500 }}>
                     <input type="checkbox" style={{ width: 'auto', minHeight: 'auto' }} checked={memberIds.has(u.id)} onChange={(e) => toggleMember(u.id, e.target.checked)} />
-                    <span className="grow">{u.name}</span>
+                    <span className="grow">{u.name}{u.id === myMemberId ? <span className="pill accent" style={{ marginLeft: 6 }}>du</span> : null}</span>
                   </label>
                   {memberIds.has(u.id) ? (
                     <label className="muted small" style={{ fontWeight: 500 }}>
@@ -1565,7 +1568,7 @@ function HostControls({
               const isAdmin = (event.adminUserIds || []).includes(m.id);
               return (
                 <div key={m.id} className="row wrap" style={{ borderTop: '1px solid var(--border)', paddingTop: 8, gap: 8, alignItems: 'center' }}>
-                  <span className="grow"><b>{m.name}</b>{isAdmin ? <span className="pill accent" style={{ marginLeft: 6 }}>admin</span> : null}</span>
+                  <span className="grow"><b>{m.name}</b>{m.isMe ? <span className="pill accent" style={{ marginLeft: 6 }}>du</span> : null}{isAdmin ? <span className="pill" style={{ marginLeft: 6 }}>admin</span> : null}</span>
                   {m.pin ? (
                     <>
                       <code style={{ fontSize: '1.05rem' }}>{m.pin}</code>

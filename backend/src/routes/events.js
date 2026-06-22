@@ -612,40 +612,33 @@ router.post(
     const account = await Account.findById(req.user.id).select('userId displayName username');
     if (!account) throw new RuleViolation('Account not found.', 404);
 
-    // The account's own roster User (created the first time the host joins as a player).
-    let { userId } = account;
-    if (!userId) {
-      const u = await User.create({
-        owner: account._id,
-        name: account.displayName || account.username || 'Värd',
-      });
-      account.userId = u._id;
-      await account.save();
-      userId = u._id;
+    // If the account already holds a slot in THIS event (bound via accountId), that
+    // IS the host's player — just make it an admin. Never add a second self-slot,
+    // which is what made the host show up twice in the roster.
+    let member = await EventMember.findOne({ eventId: event._id, accountId: account._id });
+
+    if (!member) {
+      // Resolve (or lazily create) the account's own roster identity, then reuse an
+      // existing member for that user (e.g. one added by name earlier) or create one,
+      // binding it to the account so it shows as "you" and "Spela som mig" finds it.
+      let { userId } = account;
+      if (!userId) {
+        const u = await User.create({
+          owner: account._id,
+          name: account.displayName || account.username || 'Värd',
+        });
+        account.userId = u._id;
+        await account.save();
+        userId = u._id;
+      }
+      member = await EventMember.findOne({ eventId: event._id, userId })
+        || new EventMember({ eventId: event._id, userId, addedUtc: new Date() });
+      if (!member.accountId) member.accountId = account._id;
     }
 
-    // Bind this slot to the account only when the account isn't already a DIFFERENT
-    // roster member here — the (eventId, accountId) unique index forbids two.
-    const otherBound = await EventMember.findOne({
-      eventId: event._id, accountId: account._id, userId: { $ne: userId },
-    }).select('_id');
-
-    let member = await EventMember.findOne({ eventId: event._id, userId });
-    if (member) {
-      member.isAdmin = true;
-      if (!member.claimPin) member.claimPin = randomCode(6);
-      if (!member.accountId && !otherBound) member.accountId = account._id;
-      await member.save();
-    } else {
-      await EventMember.create({
-        eventId: event._id,
-        userId,
-        accountId: otherBound ? null : account._id,
-        isAdmin: true,
-        claimPin: randomCode(6),
-        addedUtc: new Date(),
-      });
-    }
+    member.isAdmin = true;
+    if (!member.claimPin) member.claimPin = randomCode(6);
+    await member.save();
 
     eventChanged(idStr(event));
     const dto = await loadEventDto(event, req.user?.id);
