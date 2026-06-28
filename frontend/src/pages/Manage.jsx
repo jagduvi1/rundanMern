@@ -285,6 +285,26 @@ export default function Manage() {
     }
   };
 
+  // "Jag spelar också" (hide questions/answers from the host) must take effect
+  // immediately: persist it so the question endpoints mask right away, and remount
+  // the editors so the already-loaded list re-fetches masked. Otherwise a host who
+  // ticks it then imports questions keeps seeing the answers until they save/reload.
+  const saveHideQuestions = async (checked) => {
+    const next = { ...f, hideQuestionsFromHost: checked };
+    setF(next);
+    setBusy(true);
+    try {
+      const a = await updateActivity(id, buildBody(next));
+      setActivity(a);
+      setF(fieldsFrom(a));
+      setQVersion((v) => v + 1);
+    } catch (err) {
+      show(err?.message || 'Kunde inte spara.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onEditorChanged = () => setQVersion((v) => v + 1);
 
   if (loading) {
@@ -420,7 +440,7 @@ export default function Manage() {
         {usesQuestions ? (
           <>
             <CheckboxField checked={f.randomizeQuestions} onChange={set('randomizeQuestions')} label="Slumpa frågeordning per spelare" />
-            <CheckboxField checked={f.hideQuestionsFromHost} onChange={set('hideQuestionsFromHost')} label="Dölj frågorna för mig — jag spelar också" />
+            <CheckboxField checked={f.hideQuestionsFromHost} onChange={saveHideQuestions} label="Dölj frågorna för mig — jag spelar också" />
           </>
         ) : null}
 
@@ -462,7 +482,7 @@ export default function Manage() {
                 </select>
               </div>
             ) : null}
-            <CheckboxField checked={f.hideQuestionsFromHost} onChange={set('hideQuestionsFromHost')} label="Dölj svaren för mig — jag spelar också" />
+            <CheckboxField checked={f.hideQuestionsFromHost} onChange={saveHideQuestions} label="Dölj svaren för mig — jag spelar också" />
           </>
         ) : null}
 
@@ -626,6 +646,13 @@ export default function Manage() {
                 onChange={(e) => saveImpostureConfig({ revealCategoryToImpostor: e.target.checked })}
               />
               <span>Visa kategorin för impostorn (en liten ledtråd)</span>
+            </label>
+            <label className="row" style={{ gap: '.5rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox" checked={!!f.hideQuestionsFromHost}
+                onChange={(e) => saveImpostureConfig({ hideQuestionsFromHost: e.target.checked })}
+              />
+              <span>Dölj ordet och impostorn för mig — jag spelar också</span>
             </label>
             <div className="field">
               <label htmlFor="imp-scoring">Poängsystem</label>

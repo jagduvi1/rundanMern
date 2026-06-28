@@ -38,6 +38,16 @@ function buildStateDto(game, forParticipantId) {
       year: null,
     } : null,
     hasCurrentCard: !!game.currentCard?.questionId,
+    // The just-placed card, so spectators can flip their face-down card to reveal
+    // it. Stays until the next draw; null between rounds means "no reveal yet".
+    lastPlaced: game.lastPlaced?.questionId ? {
+      questionId: game.lastPlaced.questionId,
+      teamId: game.lastPlaced.teamId,
+      teamName: game.lastPlaced.teamName,
+      year: game.lastPlaced.year,
+      title: game.lastPlaced.title,
+      correct: game.lastPlaced.correct,
+    } : null,
     teams: game.teams.map((t) => ({
       participantId: t.participantId,
       displayName: t.displayName,
@@ -177,6 +187,9 @@ router.post('/:id/hitster/draw', activityManager, asyncHandler(async (req, res) 
     title: question.acceptedFreeTextAnswer || '',
     artist: question.acceptedArtist || '',
   };
+  // New mystery card in play — drop the previous reveal so spectators see a fresh
+  // face-down card.
+  game.lastPlaced = { questionId: null, teamId: null, teamName: null, year: null, title: null, correct: null };
   await game.save();
 
   const dto = buildStateDto(game, null);
@@ -312,7 +325,16 @@ router.post('/:id/hitster/place', asyncHandler(async (req, res) => {
     artist: game.currentCard.artist,
   };
 
-  // Clear current card and advance turn
+  // Remember the placed card so every client can flip its face-down card to reveal
+  // it (year/title + correctness), then clear current card and advance turn.
+  game.lastPlaced = {
+    questionId: placedCard.questionId,
+    teamId: currentTeam.participantId,
+    teamName: currentTeam.displayName,
+    year: cardYear,
+    title: game.currentCard.title,
+    correct,
+  };
   game.currentCard = { questionId: null, year: null, title: null, artist: null };
   game.currentTurnIndex = (game.currentTurnIndex + 1) % game.teams.length;
   game.roundsPlayed += 1;

@@ -17,7 +17,10 @@ const answerOptionSchema = new mongoose.Schema({
 const questionSchema = new mongoose.Schema({
   activityId: { type: mongoose.Schema.Types.ObjectId, ref: 'Activity', required: true, index: true },
   order: { type: Number, default: 0 },
-  text: { type: String, required: true, maxlength: 1000 },
+  // Blank by design for unauthored Tipspromenad station placeholders (created by
+  // the station-count setter); real questions get non-empty text via validateUpsert.
+  // Don't make this `required` — Mongoose rejects '' for required String paths.
+  text: { type: String, default: '', maxlength: 1000 },
   kind: { type: Number, enum: values(QuestionKind), default: QuestionKind.MultipleChoice },
   points: { type: Number, default: 1 },
   imageUrl: { type: String, maxlength: 500, default: null },

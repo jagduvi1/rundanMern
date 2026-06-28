@@ -18,7 +18,7 @@ import {
   setEventCode, reorderActivities, setActivitiesStatus, arrive, joinEvent, claimEvent,
   claimEventAsMe, addEventAdmin, removeEventAdmin, deleteEvent,
   addActivityFromLibrary, restartEvent, setMemberPin, revokeMember, leaveEventSelf,
-  rosterClaimLink,
+  rosterClaimLink, joinEventSelf,
 } from '../api/events';
 import { inviteToEvent } from '../api/invites';
 import { getFriends } from '../api/me';
@@ -56,11 +56,14 @@ import Pill from '../components/Pill';
 import SlapCeremony from '../components/SlapCeremony';
 import QrShareModal from '../components/QrShareModal';
 import MapView from '../components/MapView';
+import ImageUploader from '../components/ImageUploader';
+import RichTextEditor from '../components/RichTextEditor';
 
 const ARRIVAL_RADIUS = 40;
 const HOST_TYPES = [
   ActivityType.Quiz, ActivityType.Tipspromenad, ActivityType.Boule, ActivityType.ScoreGame,
   ActivityType.WordGame, ActivityType.MapPin, ActivityType.MusicQuiz, ActivityType.Memory,
+  ActivityType.Imposture,
 ];
 
 const actionLabel = (status) => ({
@@ -767,14 +770,19 @@ export default function Event() {
         if (located.length === 0) return null;
         const avgLat = located.reduce((s, a) => s + a.latitude, 0) / located.length;
         const avgLng = located.reduce((s, a) => s + a.longitude, 0) / located.length;
+        const colorOf = (a) => (a.status === ActivityStatus.Finished ? '#16a34a' : a.status === ActivityStatus.Live ? '#f59e0b' : '#2563eb');
         const markers = located.map((a) => ({
           lat: a.latitude,
           lng: a.longitude,
           label: `${a.order}. ${a.title}`,
-          color: a.status === ActivityStatus.Finished ? '#16a34a' : a.status === ActivityStatus.Live ? '#f59e0b' : '#2563eb',
+          color: colorOf(a),
         }));
+        // Show the arrival geofence for activities that have one (Tipspromenad/MapPin).
+        const circles = located
+          .filter((a) => a.radiusMeters > 0)
+          .map((a) => ({ lat: a.latitude, lng: a.longitude, radiusMeters: a.radiusMeters, color: colorOf(a) }));
         const pins = coords ? [{ lat: coords.lat, lng: coords.lng }] : [];
-        return <MapView center={[avgLat, avgLng]} markers={markers} pins={pins} fitToMarkers height="260px" />;
+        return <MapView center={[avgLat, avgLng]} markers={markers} circles={circles} pins={pins} fitToMarkers height="260px" />;
       })()}
       {activities.length === 0 ? (
         <p className="muted">Inga aktiviteter ännu{canManage ? ' — lägg till den första i värdkontrollerna.' : '.'}</p>
@@ -1090,6 +1098,7 @@ function HostControls({
   const [details, setDetails] = useState({
     name: event.name,
     description: event.description ?? '',
+    imageUrl: event.imageUrl ?? null,
     teamSize: event.teamSize,
     scoring: event.scoring,
     teamShuffle: event.teamShuffle,
@@ -1174,6 +1183,22 @@ function HostControls({
       setLocalBusy(false);
     }
   };
+
+  // Add the logged-in host themselves to the roster as an admin player so they can
+  // take part in their own event (then "Spela som mig" lets them play).
+  const addMyself = async () => {
+    setLocalBusy(true);
+    try {
+      await joinEventSelf(id);
+      await onReload();
+      onToast('Du är tillagd som spelare (admin).');
+    } catch (err) {
+      onToast(err?.message || 'Kunde inte lägga till dig själv.');
+    } finally {
+      setLocalBusy(false);
+    }
+  };
+  const iAmMember = (event.members || []).some((m) => m.isMe);
 
   // Per-member claim PIN + QR. setMemberPin(generate) protects (or re-rolls) a
   // member; {pin:''} clears it (admins stay protected server-side). The QR encodes
@@ -1264,6 +1289,7 @@ function HostControls({
       await updateEvent(id, {
         name: details.name.trim(),
         description: details.description,
+        imageUrl: details.imageUrl,
         teamSize: Number(details.teamSize),
         scoring: details.scoring,
         teamShuffle: details.teamShuffle,
@@ -1428,6 +1454,13 @@ function HostControls({
         <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Spelare &amp; evenemangsadmins{memberIds.size > 0 ? ` (${memberIds.size})` : ''}</summary>
         <div className="stack" style={{ marginTop: '.6rem' }}>
           <p className="muted">Välj spelare från rostret, och bocka <b>admin</b> för att göra någon till medvärd. Hantera rostret under <Link to="/admin/users">Personer</Link>.</p>
+          {iAmMember ? (
+            <p className="muted small" style={{ margin: 0 }}>✓ Du är med som spelare i det här evenemanget.</p>
+          ) : (
+            <button type="button" className="btn success" onClick={addMyself} disabled={anyBusy}>
+              + Lägg till mig som spelare (admin)
+            </button>
+          )}
           {allUsers.length === 0 ? (
             <p className="muted">Inga personer i rostret ännu.</p>
           ) : (
@@ -1577,6 +1610,14 @@ function HostControls({
           <div className="field">
             <label htmlFor="ev-name">Namn</label>
             <input type="text" id="ev-name" value={details.name} onChange={(e) => setDetails((d) => ({ ...d, name: e.target.value }))} maxLength={80} />
+          </div>
+          <div className="field">
+            <label>Beskrivning</label>
+            <RichTextEditor value={details.description || ''} onChange={(v) => setDetails((d) => ({ ...d, description: v }))} placeholder="Vad handlar dagen om?" />
+          </div>
+          <div className="field">
+            <label>Bild (valfritt)</label>
+            <ImageUploader value={details.imageUrl} onChange={(url) => setDetails((d) => ({ ...d, imageUrl: url }))} />
           </div>
           <div className="row wrap">
             <div className="field grow">

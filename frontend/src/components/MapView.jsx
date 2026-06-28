@@ -42,6 +42,7 @@ export default function MapView({
   zoom = 13,
   markers = [],
   pins = [],
+  circles = [], // geofence zones: [{ lat, lng, radiusMeters, color? }] — radius in METRES
   onMapClick,
   height = '320px',
   interactive = true,
@@ -132,16 +133,40 @@ export default function MapView({
       }).addTo(layer);
     }
 
+    // Geofence zones — a real metric-radius circle (unlike circleMarker, whose radius
+    // is pixels), so players/hosts can see how big the arrival zone actually is.
+    for (const c of circles) {
+      if (c == null || c.lat == null || c.lng == null || !(c.radiusMeters > 0)) continue;
+      const color = c.color || DEFAULT_COLOR;
+      L.circle([c.lat, c.lng], {
+        radius: c.radiusMeters,
+        color,
+        fillColor: color,
+        fillOpacity: 0.12,
+        weight: 2,
+        dashArray: '5 5',
+      }).addTo(layer);
+    }
+
     if (fitToMarkers) {
-      const pts = [...markers, ...pins]
-        .filter((q) => q && q.lat != null && q.lng != null)
-        .map((q) => [q.lat, q.lng]);
-      if (pts.length > 0) {
+      let bounds = null;
+      const addPoint = (latlng) => { bounds = bounds ? bounds.extend(latlng) : L.latLngBounds(latlng, latlng); };
+      for (const q of [...markers, ...pins]) {
+        if (q && q.lat != null && q.lng != null) addPoint([q.lat, q.lng]);
+      }
+      // Extend by each zone's full extent so the whole circle stays in frame.
+      for (const c of circles) {
+        if (c && c.lat != null && c.lng != null && c.radiusMeters > 0) {
+          const b = L.latLng(c.lat, c.lng).toBounds(c.radiusMeters * 2);
+          bounds = bounds ? bounds.extend(b) : b;
+        }
+      }
+      if (bounds) {
         map.invalidateSize();
-        map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: fitMaxZoom });
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: fitMaxZoom });
       }
     }
-  }, [markers, pins, fitToMarkers, fitMaxZoom]);
+  }, [markers, pins, circles, fitToMarkers, fitMaxZoom]);
 
   return (
     <div

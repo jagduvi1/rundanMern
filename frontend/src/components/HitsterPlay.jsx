@@ -239,10 +239,18 @@ export default function HitsterPlay({ activity, participant }) {
         </div>
       ) : null}
 
-      {/* Waiting state for other teams */}
-      {!isMyTurn && state.hasCurrentCard ? (
-        <div className="card muted center">
-          🎧 {currentTeam?.displayName} lyssnar och gissar…
+      {/* Spectator view: a face-down card while the active team listens, which flips
+          to reveal the year/title once they place it. */}
+      {!isMyTurn && (state.hasCurrentCard || state.lastPlaced) ? (
+        <div className="card stack center" style={{ gap: 10, alignItems: 'center' }}>
+          <MysteryCard revealed={!state.hasCurrentCard && !!state.lastPlaced} card={state.lastPlaced} />
+          <span className="muted center">
+            {state.hasCurrentCard
+              ? `🎧 ${currentTeam?.displayName} lyssnar och gissar…`
+              : state.lastPlaced
+                ? `${state.lastPlaced.teamName} placerade kortet — ${state.lastPlaced.correct ? '✓ rätt!' : '✗ fel!'}`
+                : ''}
+          </span>
         </div>
       ) : null}
 
@@ -359,6 +367,30 @@ function TimelineDisplay({ cards }) {
           <span className="small muted" style={{ textAlign: 'center' }}>{c.title}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// Spectator card that starts face-down (a song is playing) and flips to reveal the
+// placed card's year/title once the active team sets it. `card` is state.lastPlaced.
+function MysteryCard({ revealed, card }) {
+  const wrong = card && card.correct === false;
+  return (
+    <div className={`hitster-flip${revealed ? ' revealed' : ''}`} aria-hidden="true">
+      <div className="hitster-flip-inner">
+        <div className="hitster-face hitster-back">
+          <span style={{ fontSize: '1.8rem' }}>🎵</span>
+          <span style={{ fontSize: '1.6rem', fontWeight: 800 }}>?</span>
+        </div>
+        <div className={`hitster-face hitster-front${wrong ? ' wrong' : ' ok'}`}>
+          {card ? (
+            <>
+              <b style={{ fontSize: '1.5rem' }}>{card.year}</b>
+              <span className="small" style={{ textAlign: 'center', lineHeight: 1.15 }}>{card.title}</span>
+            </>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }

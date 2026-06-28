@@ -54,6 +54,8 @@ export default function LocationPicker({ lat = null, lng = null, radius = 40, on
     : 'Tryck på kartan för att sätta en nål (eller använd din position).';
 
   const markers = hasPin ? [{ lat, lng, label: `${r} m`, color: '#0B84B3' }] : [];
+  // Draw the actual radius so you can see the geofence as you set it / change the radius.
+  const circles = hasPin ? [{ lat, lng, radiusMeters: r, color: '#0B84B3' }] : [];
 
   return (
     <div className="stack">
@@ -61,6 +63,7 @@ export default function LocationPicker({ lat = null, lng = null, radius = 40, on
         center={hasPin ? [lat, lng] : GOTHENBURG}
         zoom={hasPin ? 16 : 11}
         markers={markers}
+        circles={circles}
         onMapClick={onMapClick}
         height="38vh"
       />
