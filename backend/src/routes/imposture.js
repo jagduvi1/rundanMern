@@ -144,15 +144,26 @@ async function hostRoundDto(activity) {
     }))
     .sort((a, b) => b.votes - a.votes);
 
+  // When the host plays too (hideQuestionsFromHost), the host control panel must NOT
+  // reveal the secret word or WHO the impostor is until the round is revealed —
+  // otherwise starting the round would tell the playing host the answer. Vote
+  // PROGRESS stays visible so they can still run the round; per-row isImpostor is
+  // stripped until the reveal.
+  const hostPlaying = !!activity.hideQuestionsFromHost;
+  const hideSecret = hostPlaying && round.phase !== PHASE.REVEALED;
+
   return {
     ...base,
     round: round.order,
     phase: round.phase,
-    word: round.word,
-    category: round.category ?? null,
-    impostors,
+    hostPlaying,
+    word: hideSecret ? null : round.word,
+    category: hideSecret ? null : (round.category ?? null),
+    impostors: hideSecret ? [] : impostors,
     voteCount: t.votes.length,
-    tally: round.phase >= PHASE.VOTING ? tally : null,
+    tally: round.phase >= PHASE.VOTING
+      ? (hideSecret ? tally.map((r) => ({ ...r, isImpostor: false })) : tally)
+      : null,
     caught: round.phase === PHASE.REVEALED ? impostors.some((im) => t.caughtByImpostor.get(im.id)) : null,
     guess: round.guess || null,
     guessCorrect: !!round.guessCorrect,

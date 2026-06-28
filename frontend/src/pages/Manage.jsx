@@ -647,6 +647,13 @@ export default function Manage() {
               />
               <span>Visa kategorin för impostorn (en liten ledtråd)</span>
             </label>
+            <label className="row" style={{ gap: '.5rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox" checked={!!f.hideQuestionsFromHost}
+                onChange={(e) => saveImpostureConfig({ hideQuestionsFromHost: e.target.checked })}
+              />
+              <span>Dölj ordet och impostorn för mig — jag spelar också</span>
+            </label>
             <div className="field">
               <label htmlFor="imp-scoring">Poängsystem</label>
               <select
