@@ -55,6 +55,18 @@ export function seededShuffle(items, seedSource) {
   return arr;
 }
 
+// Randomize each multiple-choice question's option order per player, so the correct
+// answer isn't always first (A/1) — hosts tend to author it in slot 1. Stable per
+// player + question (won't reshuffle on reload) and differs between players.
+// Scoring is by option id, so the display order never affects correctness.
+export function shuffleQuestionOptions(questions, participantId) {
+  return (questions || []).map((q) => (
+    q.kind === QuestionKind.MultipleChoice && (q.options || []).length > 1
+      ? { ...q, options: seededShuffle(q.options, `opt:${participantId ?? ''}:${q.id}`) }
+      : q
+  ));
+}
+
 // Inline success/error "alert" styling (index.css has no .alert class).
 export function feedbackStyle(ok) {
   return {
@@ -143,6 +155,7 @@ export default function QuizPlay({ activity, participant }) {
     (async () => {
       try {
         let qs = await getQuestions(activity.id);
+        qs = shuffleQuestionOptions(qs, participant?.id);
         if (activity.randomizeQuestions) qs = seededShuffle(qs, participant?.id);
         const mine = await getMyAnswers(activity.id);
         if (!alive) return;
