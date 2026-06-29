@@ -11,6 +11,7 @@ export const ServerEvents = Object.freeze({
   TimerStopped: 'TimerStopped',
   MusicTrackStarted: 'MusicTrackStarted',
   HitsterStateChanged: 'HitsterStateChanged',
+  PresenceChanged: 'PresenceChanged', // { eventId, connected: [name] }
 });
 
 export const ClientEvents = Object.freeze({

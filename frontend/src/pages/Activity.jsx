@@ -13,7 +13,10 @@ import { getActivitySlap } from '../api/eventSocial';
 import { getParticipantToken, setParticipantToken, getMemberToken, ApiError } from '../api/client';
 import { ActivityType, ActivityStatus, SlapState } from '../config/enums';
 import { ServerEvents } from '../config/socketEvents';
-import { getSocket, joinActivity as sockJoinActivity, leaveActivity } from '../utils/socket';
+import {
+  getSocket, joinActivity as sockJoinActivity, leaveActivity,
+  joinEvent as sockJoinEvent, leaveEvent as sockLeaveEvent,
+} from '../utils/socket';
 import {
   isViewer as readViewer, setViewer, getEventUserId, isProxying, getProxy, clearProxy,
 } from '../utils/appState';
@@ -259,6 +262,11 @@ export default function Activity() {
       // Re-emit the room join (socket.io does not preserve rooms across reconnect)
       // and refetch in case a push was missed while offline.
       sockJoinActivity(id).catch(() => {});
+      // Re-report event presence so a player in an activity still shows "connected"
+      // on the host's event standings after a reconnect.
+      const evId = activityRef.current?.eventId;
+      const nm = sessionRef.current?.displayName;
+      if (evId && nm) sockJoinEvent(evId, { name: nm }).catch(() => {});
       getActivity(id).then((a) => a && setActivity(a)).catch(() => {});
       refreshScoreboard();
       refreshParticipants();
@@ -279,6 +287,16 @@ export default function Activity() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Report event-level presence while playing an activity, so the host's "connected
+  // players" list on the event standings still shows a player who's deep in a quiz.
+  useEffect(() => {
+    const evId = activity?.eventId;
+    const name = session?.displayName;
+    if (!evId || !name) return undefined;
+    sockJoinEvent(evId, { name }).catch(() => {});
+    return () => { sockLeaveEvent(evId).catch(() => {}); };
+  }, [activity?.eventId, session?.displayName]);
 
   // ── Self-heal poll (4s): a phone can miss a push; re-GET and catch up ────────
   useEffect(() => {

@@ -102,6 +102,9 @@ export default function Event() {
 
   // Player identity (this device).
   const [eventName, setEventName] = useState(getEventName(id));
+  // Live presence: names of players who currently have the app open (host view).
+  const [presence, setPresence] = useState([]);
+  const [presQr, setPresQr] = useState(null); // { url, name } quick-join QR for an offline player
   const [viewer, setViewerState] = useState(false);
   const [viewerNameSaved, setViewerNameSaved] = useState(getViewerName(id));
 
@@ -130,6 +133,9 @@ export default function Event() {
   // The effective "joined as" name: while proxying, the proxied player (overlay)
   // wins over this device's own joined name — without ever writing device keys.
   const joinedName = proxyHere ? (proxy?.name || '') : eventName;
+  // Latest joined name for the socket reconnect handler (avoids a stale closure).
+  const joinedNameRef = useRef(joinedName);
+  joinedNameRef.current = joinedName;
   // "Preview as player": a host can flip into the exact player view to see what
   // their guests see. While previewing, canManage is false so the host branch is
   // skipped; a banner lets them flip back.
@@ -273,12 +279,20 @@ export default function Event() {
       if (!active || !msg) return;
       setChat((list) => (list.some((m) => m.id === msg.id) ? list : [...list, msg]));
     };
+    const onPresence = (dto) => {
+      if (!active || !dto || String(dto.eventId) !== String(id)) return;
+      setPresence(Array.isArray(dto.connected) ? dto.connected : []);
+    };
+    const joinWithMe = () => {
+      const name = joinedNameRef.current;
+      sockJoinEvent(id, name ? { name } : undefined).catch(() => {});
+    };
 
     (async () => {
       try {
         socket = await getSocket();
         if (!active) return;
-        await sockJoinEvent(id);
+        joinWithMe();
         // Join each activity room too (mirrors rundan's StartAsync(activityIds)).
         for (const a of (eventRef.current?.activities || [])) sockJoinActivity(a.id).catch(() => {});
         socket.on(ServerEvents.ScoreboardUpdated, onRefresh);
@@ -286,6 +300,7 @@ export default function Event() {
         socket.on(ServerEvents.EventChanged, onRefresh);
         socket.on(ServerEvents.ViewersChanged, onViewers);
         socket.on(ServerEvents.ChatPosted, onChat);
+        socket.on(ServerEvents.PresenceChanged, onPresence);
         socket.on('connect', onReconnect);
         socket.on('disconnect', onDisconnect);
       } catch { /* live unavailable; the page still works */ }
@@ -293,7 +308,7 @@ export default function Event() {
 
     function onReconnect() {
       setReconnecting(false);
-      sockJoinEvent(id).catch(() => {});
+      joinWithMe();
       for (const a of (eventRef.current?.activities || [])) sockJoinActivity(a.id).catch(() => {});
       reload();
     }
@@ -307,6 +322,7 @@ export default function Event() {
         socket.off(ServerEvents.EventChanged, onRefresh);
         socket.off(ServerEvents.ViewersChanged, onViewers);
         socket.off(ServerEvents.ChatPosted, onChat);
+        socket.off(ServerEvents.PresenceChanged, onPresence);
         socket.off('connect', onReconnect);
         socket.off('disconnect', onDisconnect);
         leaveEvent(id).catch(() => {});
@@ -314,6 +330,12 @@ export default function Event() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Re-report identity to the presence list whenever this device's joined name
+  // changes (e.g. the player claims a name after the socket already connected).
+  useEffect(() => {
+    if (joinedName) sockJoinEvent(id, { name: joinedName }).catch(() => {});
+  }, [id, joinedName]);
 
   // ── Geolocation + arrival prompts ──────────────────────────────────────────
   const { coords, start: startGeo } = useGeolocation();
@@ -669,6 +691,45 @@ export default function Event() {
     </div>
   ) : null;
 
+  // Host-only "who has the app open" panel — live players, who we're waiting for,
+  // and a per-player QR so the host can get a missing player connected fast.
+  const showPresQr = (m) => {
+    const url = `${window.location.origin}/e/${id}?claimUser=${m.id}&pin=${encodeURIComponent(m.pin || '')}`;
+    setPresQr({ url, name: m.name });
+  };
+  const liveSet = new Set((presence || []).map((n) => String(n).toLowerCase()));
+  const liveCount = (event.members || []).filter((m) => liveSet.has((m.name || '').toLowerCase())).length;
+  const connectedBlock = canManage && (event.members || []).length > 0 ? (
+    <div className="card">
+      <div className="row">
+        <h2 className="grow" style={{ margin: 0 }}>Anslutna spelare</h2>
+        <span className={`pill ${liveCount === event.members.length ? 'ok' : ''}`}>{liveCount} / {event.members.length} online</span>
+      </div>
+      <p className="muted small" style={{ marginTop: 4 }}>
+        Grön prick = spelaren har appen öppen just nu. Hjälp de som väntar att gå med — visa QR-koden så skannar de med kameran.
+      </p>
+      <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        {event.members.map((m) => {
+          const live = liveSet.has((m.name || '').toLowerCase());
+          return (
+            <li key={m.id} className="row" style={{ borderTop: '1px solid var(--border)', padding: '.5rem 0', gap: 8 }}>
+              <span aria-hidden="true" title={live ? 'Ansluten' : 'Inte ansluten'} style={{ color: live ? 'var(--ok)' : 'var(--border)', fontSize: '1.2rem', lineHeight: 1 }}>●</span>
+              <span className="grow">{m.name}{m.isMe ? <span className="muted small"> · du</span> : null}</span>
+              {live ? (
+                <span className="muted small">ansluten</span>
+              ) : (
+                <>
+                  <span className="muted small">väntar…</span>
+                  <button type="button" className="btn ghost sm" onClick={() => showPresQr(m)}>Visa QR</button>
+                </>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  ) : null;
+
   const standingsBlock = (
     <div className="card">
       <h2>{event.isComplete ? 'Slutställning' : 'Totalställning'}</h2>
@@ -920,9 +981,16 @@ export default function Event() {
   // chat live during play).
   const playGroup = (
     <>
+      {connectedBlock}
       {standingsBlock}
       {activitiesBlock}
       {chatBlock}
+      <QrShareModal
+        open={!!presQr}
+        url={presQr?.url || ''}
+        title={presQr ? `${presQr.name} — skanna för att gå med` : ''}
+        onClose={() => setPresQr(null)}
+      />
     </>
   );
 

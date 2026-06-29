@@ -44,8 +44,9 @@ export async function joinActivity(activityId) {
 export async function leaveActivity(activityId) {
   (await getSocket()).emit(ClientEvents.LeaveActivity, activityId);
 }
-export async function joinEvent(eventId) {
-  (await getSocket()).emit(ClientEvents.JoinEvent, eventId);
+// `who` (optional) = { name } so the host can see which players are connected.
+export async function joinEvent(eventId, who) {
+  (await getSocket()).emit(ClientEvents.JoinEvent, who && who.name ? { eventId, who } : eventId);
 }
 export async function leaveEvent(eventId) {
   (await getSocket()).emit(ClientEvents.LeaveEvent, eventId);
