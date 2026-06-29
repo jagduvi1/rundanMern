@@ -1,7 +1,7 @@
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const env = require('../config/env');
-const { ClientEvents, activityRoom, eventRoom } = require('../constants/socketEvents');
+const { ClientEvents, ServerEvents, activityRoom, eventRoom } = require('../constants/socketEvents');
 const { socketAccessAllowed } = require('../middleware/accessGate');
 const emit = require('./emit');
 
@@ -39,6 +39,22 @@ function initSockets(httpServer) {
     next();
   });
 
+  // Live presence per event room: room → Map<socketId, { name }>. Lets the host see
+  // which players currently have the app open (and who they're still waiting for).
+  // In-memory + best-effort: a server restart just re-derives it as clients re-join.
+  const eventPresence = new Map();
+  const presenceNames = (room) => {
+    const m = eventPresence.get(room);
+    if (!m) return [];
+    const byKey = new Map();
+    for (const who of m.values()) if (who && who.name) byKey.set(who.name.toLowerCase(), who.name);
+    return [...byKey.values()].sort((a, b) => a.localeCompare(b));
+  };
+  const emitPresence = (eventId) => {
+    const room = eventRoom(eventId);
+    io.to(room).emit(ServerEvents.PresenceChanged, { eventId: String(eventId), connected: presenceNames(room) });
+  };
+
   io.on('connection', (socket) => {
     socket.on(ClientEvents.JoinActivity, (activityId) => {
       if (activityId != null) socket.join(activityRoom(activityId));
@@ -46,11 +62,40 @@ function initSockets(httpServer) {
     socket.on(ClientEvents.LeaveActivity, (activityId) => {
       if (activityId != null) socket.leave(activityRoom(activityId));
     });
-    socket.on(ClientEvents.JoinEvent, (eventId) => {
-      if (eventId != null) socket.join(eventRoom(eventId));
+    // JoinEvent accepts a bare eventId (legacy) or { eventId, who:{ name } } so a
+    // logged-in player/host reports their identity for the host's presence list.
+    socket.on(ClientEvents.JoinEvent, (arg) => {
+      const eventId = arg && typeof arg === 'object' ? arg.eventId : arg;
+      if (eventId == null) return;
+      const room = eventRoom(eventId);
+      socket.join(room);
+      const name = arg && typeof arg === 'object' && arg.who && arg.who.name
+        ? String(arg.who.name).slice(0, 60) : null;
+      if (name) {
+        if (!eventPresence.has(room)) eventPresence.set(room, new Map());
+        eventPresence.get(room).set(socket.id, { name });
+        socket.data.eventRooms = socket.data.eventRooms || new Set();
+        socket.data.eventRooms.add(room);
+      }
+      emitPresence(eventId); // broadcast the updated list (also seeds a just-joined host)
     });
-    socket.on(ClientEvents.LeaveEvent, (eventId) => {
-      if (eventId != null) socket.leave(eventRoom(eventId));
+    socket.on(ClientEvents.LeaveEvent, (arg) => {
+      const eventId = arg && typeof arg === 'object' ? arg.eventId : arg;
+      if (eventId == null) return;
+      const room = eventRoom(eventId);
+      socket.leave(room);
+      const m = eventPresence.get(room);
+      if (m && m.delete(socket.id)) { socket.data.eventRooms?.delete(room); emitPresence(eventId); }
+    });
+    socket.on('disconnect', () => {
+      for (const room of socket.data.eventRooms || []) {
+        const m = eventPresence.get(room);
+        if (m && m.delete(socket.id)) {
+          io.to(room).emit(ServerEvents.PresenceChanged, {
+            eventId: room.slice(room.indexOf(':') + 1), connected: presenceNames(room),
+          });
+        }
+      }
     });
 
     // Live stopwatch relay — stamp StartedUtc server-side so every viewer ticks

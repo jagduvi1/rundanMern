@@ -17,6 +17,7 @@ const ServerEvents = Object.freeze({
   TimerStopped: 'TimerStopped',
   MusicTrackStarted: 'MusicTrackStarted',
   HitsterStateChanged: 'HitsterStateChanged',
+  PresenceChanged: 'PresenceChanged', // { eventId, connected: [name] } — who has the app open
 });
 
 // Client → server (clients emit, server handles).
