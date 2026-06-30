@@ -18,7 +18,7 @@ import {
   setEventCode, reorderActivities, setActivitiesStatus, arrive, joinEvent, claimEvent,
   claimEventAsMe, addEventAdmin, removeEventAdmin, deleteEvent,
   addActivityFromLibrary, restartEvent, setMemberPin, revokeMember, leaveEventSelf,
-  rosterClaimLink, joinEventSelf,
+  rosterClaimLink, joinEventSelf, linkEventSelf,
 } from '../api/events';
 import { inviteToEvent } from '../api/invites';
 import { getFriends } from '../api/me';
@@ -1266,7 +1266,25 @@ function HostControls({
       setLocalBusy(false);
     }
   };
-  const iAmMember = (event.members || []).some((m) => m.isMe);
+  // Link an existing roster player to my login ("that player is me") — so the host
+  // can claim a slot that's already in the list instead of creating a duplicate.
+  const linkMyself = async (m) => {
+    setLocalBusy(true);
+    try {
+      await linkEventSelf(id, m.id);
+      await onReload();
+      onToast(`Du är nu kopplad till ${m.name}.`);
+    } catch (err) {
+      onToast(err?.message || 'Kunde inte koppla dig till spelaren.');
+    } finally {
+      setLocalBusy(false);
+    }
+  };
+  const myMember = (event.members || []).find((m) => m.isMe) || null;
+  const iAmMember = !!myMember;
+  // The roster userId of the slot that's "me" (the logged-in user running the app),
+  // so the picker + roster lists can clearly mark which player is you.
+  const myMemberId = myMember?.id ?? null;
 
   // Per-member claim PIN + QR. setMemberPin(generate) protects (or re-rolls) a
   // member; {pin:''} clears it (admins stay protected server-side). The QR encodes
@@ -1522,13 +1540,24 @@ function HostControls({
         <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Spelare &amp; evenemangsadmins{memberIds.size > 0 ? ` (${memberIds.size})` : ''}</summary>
         <div className="stack" style={{ marginTop: '.6rem' }}>
           <p className="muted">Välj spelare från rostret, och bocka <b>admin</b> för att göra någon till medvärd. Hantera rostret under <Link to="/admin/users">Personer</Link>.</p>
-          {iAmMember ? (
-            <p className="muted small" style={{ margin: 0 }}>✓ Du är med som spelare i det här evenemanget.</p>
-          ) : (
-            <button type="button" className="btn success" onClick={addMyself} disabled={anyBusy}>
-              + Lägg till mig som spelare (admin)
-            </button>
-          )}
+          <div className="card" style={{ margin: 0, background: 'var(--surface-2)' }}>
+            <div className="small">
+              Du är <b>värd</b>{user ? <> — inloggad som <b>{user.displayName || user.username}</b></> : null}.
+            </div>
+            {iAmMember ? (
+              <div className="small" style={{ marginTop: 4 }}>
+                ✓ Din spelare i evenemanget: <b>{myMember.name}</b>.{' '}
+                <span className="muted">Byt genom att trycka <i>Det här är jag</i> på en annan spelare nedan.</span>
+              </div>
+            ) : (
+              <div className="row wrap" style={{ marginTop: 6, gap: 8, alignItems: 'center' }}>
+                <button type="button" className="btn success sm" onClick={addMyself} disabled={anyBusy}>
+                  + Lägg till mig som ny spelare
+                </button>
+                <span className="muted small">eller tryck <i>Det här är jag</i> om ditt namn redan finns nedan.</span>
+              </div>
+            )}
+          </div>
           {allUsers.length === 0 ? (
             <p className="muted">Inga personer i rostret ännu.</p>
           ) : (
@@ -1537,7 +1566,7 @@ function HostControls({
                 <div key={u.id} className="row">
                   <label className="row grow" style={{ fontWeight: 500 }}>
                     <input type="checkbox" style={{ width: 'auto', minHeight: 'auto' }} checked={memberIds.has(u.id)} onChange={(e) => toggleMember(u.id, e.target.checked)} />
-                    <span className="grow">{u.name}</span>
+                    <span className="grow">{u.name}{u.id === myMemberId ? <span className="pill accent" style={{ marginLeft: 6 }}>du</span> : null}</span>
                   </label>
                   {memberIds.has(u.id) ? (
                     <label className="muted small" style={{ fontWeight: 500 }}>
@@ -1565,7 +1594,7 @@ function HostControls({
               const isAdmin = (event.adminUserIds || []).includes(m.id);
               return (
                 <div key={m.id} className="row wrap" style={{ borderTop: '1px solid var(--border)', paddingTop: 8, gap: 8, alignItems: 'center' }}>
-                  <span className="grow"><b>{m.name}</b>{isAdmin ? <span className="pill accent" style={{ marginLeft: 6 }}>admin</span> : null}</span>
+                  <span className="grow"><b>{m.name}</b>{m.isMe ? <span className="pill accent" style={{ marginLeft: 6 }}>du</span> : null}{isAdmin ? <span className="pill" style={{ marginLeft: 6 }}>admin</span> : null}</span>
                   {m.pin ? (
                     <>
                       <code style={{ fontSize: '1.05rem' }}>{m.pin}</code>
@@ -1578,6 +1607,9 @@ function HostControls({
                       {m.needsPin ? 'Generera PIN' : 'Skydda med PIN'}
                     </button>
                   )}
+                  {!m.isMe ? (
+                    <button type="button" className="btn ghost sm" onClick={() => linkMyself(m)} disabled={anyBusy} title="Koppla den här spelaren till ditt konto">Det här är jag</button>
+                  ) : null}
                   <button type="button" className="btn ghost sm danger" onClick={() => revoke(m)} disabled={anyBusy} title="Logga ut spelarens enhet — de måste gå med igen">Logga ut</button>
                 </div>
               );
