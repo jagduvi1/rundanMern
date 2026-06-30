@@ -12,6 +12,8 @@ export const setMembers = (id, userIds, adminUserIds) =>
   apiPut(`/events/${id}/members`, { userIds, adminUserIds }, { eventId: id });
 // Add the logged-in host themselves to the roster as an admin player.
 export const joinEventSelf = (id) => apiPost(`/events/${id}/join-self`, {}, { eventId: id });
+// Link an EXISTING roster player to the logged-in host ("that player is me").
+export const linkEventSelf = (id, userId) => apiPost(`/events/${id}/link-self`, { userId }, { eventId: id });
 export const addEventAdmin = (id, email) =>
   apiPost(`/events/${id}/admins`, { email }, { eventId: id });
 export const removeEventAdmin = (id, accountId) =>

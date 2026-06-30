@@ -647,6 +647,43 @@ router.post(
   })
 );
 
+// POST /api/events/:id/link-self — a manager links an EXISTING roster player to
+// THEIR login ("that player is me"), instead of adding a separate self-slot. Moves
+// the account's per-event identity onto the chosen slot (one slot per account per
+// event), so it shows as "you" and counts as the host. Refuses to take over a slot
+// already linked to a different login.
+router.post(
+  '/:id/link-self',
+  requireAuth,
+  eventManager,
+  asyncHandler(async (req, res) => {
+    const event = req.targetEvent;
+    const accountId = req.user.id;
+    const userId = typeof req.body?.userId === 'string' ? req.body.userId : '';
+    if (!userId) throw new RuleViolation('Pick a player.');
+
+    const target = await EventMember.findOne({ eventId: event._id, userId });
+    if (!target) throw new RuleViolation('That player is not on the roster.', 404);
+    if (target.accountId && String(target.accountId) !== String(accountId)) {
+      throw new RuleViolation('Den spelaren är redan kopplad till ett annat konto.', 409);
+    }
+
+    // Move my per-event identity here: clear it off any OTHER slot in this event
+    // (the eventId+accountId unique index allows only one), then bind this one.
+    await EventMember.updateMany(
+      { eventId: event._id, accountId, _id: { $ne: target._id } },
+      { $set: { accountId: null } },
+    );
+    target.accountId = accountId;
+    await target.save();
+
+    eventChanged(idStr(event));
+    const dto = await loadEventDto(event, req.user?.id);
+    dto.canManage = true;
+    res.json(dto);
+  })
+);
+
 // PUT /api/events/:id/members/:userId/pin — set / clear / generate a roster member's
 // claim PIN (manager only). Body { pin? (set explicit), generate? (random) };
 // neither clears it — except an admin can never be left unprotected (clearing it
